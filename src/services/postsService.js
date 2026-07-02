@@ -332,6 +332,54 @@ const getDateFromFirestore = (value) => {
     return docRef.id;
     };
 
+    export const createGoalPost = async ({
+    uid,
+    userName,
+    userPhotoURL,
+    goal,
+    text,
+    }) => {
+    if (!uid) {
+        throw new Error("No se encontró el usuario.");
+    }
+
+    if (!goal?.title) {
+        throw new Error("No se encontró el objetivo.");
+    }
+
+    const unit = goal.unit || "";
+    const targetValue = Number(goal.targetValue) || 0;
+    const currentValue = Number(goal.currentValue) || 0;
+
+    const fallbackText = `Cumplí mi objetivo en Forte: ${goal.title}. Llegué a ${currentValue}${
+        unit ? ` ${unit}` : ""
+    } de ${targetValue}${unit ? ` ${unit}` : ""} 💪`;
+
+    const finalText = text?.trim() ? text.trim() : fallbackText;
+
+    const postsRef = collection(db, "posts");
+
+    const docRef = await addDoc(postsRef, {
+        userId: uid,
+        userName: userName || "Usuario Forte",
+        userPhotoURL: userPhotoURL || null,
+        type: "goal_completed",
+        text: finalText,
+        stats: {
+        goalTitle: goal.title,
+        goalType: goal.type || "custom",
+        targetValue,
+        currentValue,
+        unit,
+        completed: true,
+        },
+        imageUrl: null,
+        createdAt: serverTimestamp(),
+    });
+
+    return docRef.id;
+    };
+
     export const togglePostLike = async ({ uid, postId }) => {
     if (!uid) {
         throw new Error("No se encontró el usuario.");
@@ -360,9 +408,9 @@ const getDateFromFirestore = (value) => {
     return {
         liked: true,
     };
-};
+    };
 
-export const getPostComments = async ({ postId }) => {
+    export const getPostComments = async ({ postId }) => {
     if (!postId) {
         throw new Error("No se encontró la publicación.");
     }
@@ -425,4 +473,46 @@ export const getPostComments = async ({ postId }) => {
     });
 
     return docRef.id;
+    };
+
+    export const deletePost = async ({ uid, postId }) => {
+    if (!uid) {
+        throw new Error("No se encontró el usuario.");
+    }
+
+    if (!postId) {
+        throw new Error("No se encontró la publicación.");
+    }
+
+    const postRef = doc(db, "posts", postId);
+    const postSnap = await getDoc(postRef);
+
+    if (!postSnap.exists()) {
+        throw new Error("La publicación ya no existe.");
+    }
+
+    const postData = postSnap.data();
+
+    if (postData.userId !== uid) {
+        throw new Error("Solo podés eliminar tus propias publicaciones.");
+    }
+
+    const likesRef = collection(db, "posts", postId, "likes");
+    const commentsRef = collection(db, "posts", postId, "comments");
+
+    const [likesSnapshot, commentsSnapshot] = await Promise.all([
+        getDocs(likesRef),
+        getDocs(commentsRef),
+    ]);
+
+    await Promise.all([
+        ...likesSnapshot.docs.map((item) => deleteDoc(item.ref)),
+        ...commentsSnapshot.docs.map((item) => deleteDoc(item.ref)),
+    ]);
+
+    await deleteDoc(postRef);
+
+    return {
+        ok: true,
+    };
 };

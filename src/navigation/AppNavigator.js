@@ -1,5 +1,5 @@
 //Importaciones:
-import React from "react";
+import React, { useCallback, useState } from "react";
 import { View, StyleSheet } from "react-native";
 import { ActivityIndicator, Text, useTheme } from "react-native-paper";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -22,6 +22,18 @@ export default function AppNavigator({
     const theme = useTheme();
     const { loading, isAuthenticated } = useAuth();
 
+    const [unreadSocialCount, setUnreadSocialCount] = useState(0);
+
+    const updateUnreadSocialCount = useCallback((count) => {
+        const safeCount = Math.max(0, Number(count) || 0);
+
+        setUnreadSocialCount(safeCount);
+    }, []);
+
+    const clearUnreadSocialCount = useCallback(() => {
+        setUnreadSocialCount(0);
+    }, []);
+
     if (loading) {
         return (
         <View
@@ -31,6 +43,7 @@ export default function AppNavigator({
             ]}
         >
             <ActivityIndicator size="large" />
+
             <Text
             variant="bodyMedium"
             style={{
@@ -65,6 +78,9 @@ export default function AppNavigator({
                     setThemeMode={setThemeMode}
                     colorPreset={colorPreset}
                     setColorPreset={setColorPreset}
+                    unreadSocialCount={unreadSocialCount}
+                    updateUnreadSocialCount={updateUnreadSocialCount}
+                    clearUnreadSocialCount={clearUnreadSocialCount}
                 />
                 )}
             </Stack.Screen>
@@ -75,9 +91,9 @@ export default function AppNavigator({
         )}
         </Stack.Navigator>
     );
-}
+    }
 
-const styles = StyleSheet.create({
+    const styles = StyleSheet.create({
     loadingContainer: {
         flex: 1,
         alignItems: "center",

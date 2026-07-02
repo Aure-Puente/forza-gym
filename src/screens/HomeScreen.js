@@ -30,6 +30,7 @@ import {
 } from "../services/recordsService";
 
 import { getTrainingDays } from "../services/trainingDaysService";
+import { getPosts } from "../services/postsService";
 
 const formatNumber = (value) => {
   return new Intl.NumberFormat("es-AR").format(Number(value) || 0);
@@ -62,6 +63,17 @@ const formatSessionDate = (date) => {
   }).format(date);
 };
 
+const formatPostDate = (date) => {
+  if (!date) return "Ahora";
+
+  return new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+};
+
 const getGreeting = () => {
   const hour = new Date().getHours();
 
@@ -75,12 +87,72 @@ const getInitial = (name) => {
   return String(name || "F").charAt(0).toUpperCase();
 };
 
+const getPostTypeData = (post) => {
+  if (post.type === "weekly_progress") {
+    return {
+      label: "Progreso semanal",
+      icon: "chart-line",
+    };
+  }
+
+  if (post.type === "exercise_progress") {
+    return {
+      label: "Logro",
+      icon: "dumbbell",
+    };
+  }
+
+  if (post.type === "goal_completed") {
+    return {
+      label: "Objetivo cumplido",
+      icon: "target",
+    };
+  }
+
+  if (post.type === "photo") {
+    return {
+      label: "Foto",
+      icon: "image-outline",
+    };
+  }
+
+  return {
+    label: "Publicación",
+    icon: "message-text-outline",
+  };
+};
+
+const getPostPreviewText = (post) => {
+  if (post.text?.trim()) {
+    return post.text.trim();
+  }
+
+  if (post.type === "weekly_progress") {
+    return "Compartió su progreso semanal.";
+  }
+
+  if (post.type === "exercise_progress") {
+    return "Compartió un avance de entrenamiento.";
+  }
+
+  if (post.type === "goal_completed") {
+    return "Cumplió un objetivo.";
+  }
+
+  if (post.type === "photo") {
+    return "Compartió una foto.";
+  }
+
+  return "Nueva publicación en Social.";
+};
+
 export default function HomeScreen({ navigation }) {
   const theme = useTheme();
   const { user, userProfile } = useAuth();
 
   const [sessions, setSessions] = useState([]);
   const [trainingDays, setTrainingDays] = useState([]);
+  const [recentSocialPosts, setRecentSocialPosts] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -126,17 +198,27 @@ export default function HomeScreen({ navigation }) {
     try {
       if (!user?.uid) return;
 
-      const [sessionsResponse, trainingDaysResponse] = await Promise.all([
-        getWorkoutSessions({
-          uid: user.uid,
-          maxResults: 80,
-        }),
-        getTrainingDays(user.uid),
-      ]);
+      const [sessionsResponse, trainingDaysResponse, postsResponse] =
+        await Promise.all([
+          getWorkoutSessions({
+            uid: user.uid,
+            maxResults: 80,
+          }),
+          getTrainingDays(user.uid),
+          getPosts({
+            uid: user.uid,
+            maxResults: 12,
+          }),
+        ]);
+
+      const safePosts = Array.isArray(postsResponse) ? postsResponse : [];
 
       setSessions(Array.isArray(sessionsResponse) ? sessionsResponse : []);
       setTrainingDays(
         Array.isArray(trainingDaysResponse) ? trainingDaysResponse : []
+      );
+      setRecentSocialPosts(
+        safePosts.filter((post) => post.userId !== user.uid).slice(0, 2)
       );
     } catch (error) {
       console.log("Error cargando Home:", error);
@@ -245,6 +327,108 @@ export default function HomeScreen({ navigation }) {
     );
   };
 
+  const renderSocialPostPreview = (post) => {
+    const typeData = getPostTypeData(post);
+
+    return (
+      <TouchableRipple
+        key={post.id}
+        borderless
+        onPress={() => goToTab("Social")}
+        style={[
+          styles.socialPreviewItem,
+          {
+            backgroundColor: theme.colors.surfaceVariant,
+            borderColor: theme.colors.outlineVariant,
+          },
+        ]}
+      >
+        <View style={styles.socialPreviewContent}>
+          <View style={styles.socialPreviewTop}>
+            {post.userPhotoURL ? (
+              <Avatar.Image size={42} source={{ uri: post.userPhotoURL }} />
+            ) : (
+              <Avatar.Text
+                size={42}
+                label={getInitial(post.userName)}
+                style={{ backgroundColor: theme.custom.softPrimary }}
+                color={theme.colors.primary}
+              />
+            )}
+
+            <View style={styles.socialPreviewUserBox}>
+              <Text
+                variant="labelLarge"
+                numberOfLines={1}
+                style={{
+                  color: theme.colors.onSurface,
+                  fontWeight: "900",
+                }}
+              >
+                {post.userName || "Usuario Forte"}
+              </Text>
+
+              <Text
+                variant="bodySmall"
+                numberOfLines={1}
+                style={{
+                  color: theme.colors.onSurfaceVariant,
+                  marginTop: 2,
+                }}
+              >
+                {formatPostDate(post.createdDate)}
+              </Text>
+            </View>
+
+            {!!post.imageUrl && (
+              <Image
+                source={{ uri: post.imageUrl }}
+                style={styles.socialPreviewImage}
+                resizeMode="cover"
+              />
+            )}
+          </View>
+
+          <Text
+            variant="bodyMedium"
+            numberOfLines={2}
+            style={{
+              color: theme.colors.onSurfaceVariant,
+              lineHeight: 20,
+              marginTop: 10,
+            }}
+          >
+            {getPostPreviewText(post)}
+          </Text>
+
+          <View style={styles.socialPreviewBottom}>
+            <Chip
+              compact
+              icon={typeData.icon}
+              style={{ backgroundColor: theme.custom.softPrimary }}
+              textStyle={{
+                color: theme.colors.primary,
+                fontWeight: "900",
+              }}
+            >
+              {typeData.label}
+            </Chip>
+
+            <Text
+              variant="labelMedium"
+              style={{
+                color: theme.colors.primary,
+                fontWeight: "900",
+              }}
+            >
+              Ver en Social
+            </Text>
+          </View>
+        </View>
+      </TouchableRipple>
+    );
+  };
+
   return (
     <ScrollView
       style={{ backgroundColor: theme.colors.background }}
@@ -299,6 +483,56 @@ export default function HomeScreen({ navigation }) {
         </View>
       ) : (
         <>
+          {recentSocialPosts.length > 0 && (
+            <Card
+              mode="contained"
+              style={[
+                styles.socialCard,
+                { backgroundColor: theme.colors.surface },
+              ]}
+            >
+              <Card.Content>
+                <View style={styles.socialHeader}>
+                  <View style={styles.socialHeaderText}>
+                    <Text
+                      variant="titleLarge"
+                      style={{
+                        color: theme.colors.onSurface,
+                        fontWeight: "900",
+                      }}
+                    >
+                      Actividad social
+                    </Text>
+
+                    <Text
+                      variant="bodyMedium"
+                      style={{
+                        color: theme.colors.onSurfaceVariant,
+                        marginTop: 4,
+                      }}
+                    >
+                      Últimas publicaciones de otros usuarios.
+                    </Text>
+                  </View>
+
+                  <Button
+                    mode="text"
+                    compact
+                    icon="arrow-right"
+                    textColor={theme.colors.primary}
+                    onPress={() => goToTab("Social")}
+                  >
+                    Ver
+                  </Button>
+                </View>
+
+                <View style={styles.socialPreviewList}>
+                  {recentSocialPosts.map(renderSocialPostPreview)}
+                </View>
+              </Card.Content>
+            </Card>
+          )}
+
           <Card
             mode="contained"
             style={[
@@ -793,6 +1027,52 @@ const styles = StyleSheet.create({
     minHeight: 420,
     alignItems: "center",
     justifyContent: "center",
+  },
+  socialCard: {
+    borderRadius: 28,
+    marginBottom: 16,
+  },
+  socialHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  socialHeaderText: {
+    flex: 1,
+    marginRight: 10,
+  },
+  socialPreviewList: {
+    gap: 10,
+  },
+  socialPreviewItem: {
+    borderRadius: 22,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  socialPreviewContent: {
+    padding: 14,
+  },
+  socialPreviewTop: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  socialPreviewUserBox: {
+    flex: 1,
+    marginLeft: 11,
+    marginRight: 10,
+  },
+  socialPreviewImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "#00000010",
+  },
+  socialPreviewBottom: {
+    marginTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
   },
   heroCard: {
     borderRadius: 32,

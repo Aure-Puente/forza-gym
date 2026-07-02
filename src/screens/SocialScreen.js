@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Image,
@@ -7,6 +7,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   ActivityIndicator,
   Avatar,
@@ -24,6 +25,7 @@ import {
   useTheme,
 } from "react-native-paper";
 import * as ImagePicker from "expo-image-picker";
+import { useFocusEffect } from "@react-navigation/native";
 
 import ProgressDonut from "../components/charts/ProgressDonut";
 
@@ -33,6 +35,7 @@ import {
   createPhotoPost,
   createPostComment,
   createTextPost,
+  deletePost,
   getPostComments,
   getPosts,
   togglePostLike,
@@ -68,6 +71,13 @@ const getPostTypeData = (post) => {
     };
   }
 
+  if (post.type === "goal_completed") {
+    return {
+      label: "Objetivo cumplido",
+      icon: "target",
+    };
+  }
+
   if (post.type === "photo") {
     return {
       label: "Foto",
@@ -85,9 +95,30 @@ const getInitial = (name) => {
   return String(name || "F").charAt(0).toUpperCase();
 };
 
-export default function SocialScreen() {
+const getPostTime = (post) => {
+  if (post?.createdDate instanceof Date) {
+    return post.createdDate.getTime();
+  }
+
+  if (post?.createdAt?.toDate) {
+    return post.createdAt.toDate().getTime();
+  }
+
+  return 0;
+};
+
+const getLastSeenKey = (uid) => {
+  return `@forte_social_last_seen_${uid}`;
+};
+
+export default function SocialScreen({
+  updateUnreadSocialCount,
+  clearUnreadSocialCount,
+}) {
   const theme = useTheme();
   const { user, userProfile } = useAuth();
+
+  const isFocusedRef = useRef(false);
 
   const [posts, setPosts] = useState([]);
 
@@ -108,6 +139,7 @@ export default function SocialScreen() {
   const [commentPosting, setCommentPosting] = useState(false);
 
   const [likingPostId, setLikingPostId] = useState(null);
+  const [deletingPostId, setDeletingPostId] = useState(null);
 
   const [error, setError] = useState("");
 
@@ -118,33 +150,120 @@ export default function SocialScreen() {
     };
   };
 
-  const loadPosts = useCallback(async () => {
-    try {
-      setError("");
-
+  const syncUnreadCount = useCallback(
+    async ({ loadedPosts, markAsSeen = false }) => {
       if (!user?.uid) return;
 
-      const response = await getPosts({
-        uid: user.uid,
-        maxResults: 50,
+      const otherPosts = loadedPosts.filter((post) => post.userId !== user.uid);
+
+      const latestOtherPostTime = otherPosts.reduce((max, post) => {
+        return Math.max(max, getPostTime(post));
+      }, 0);
+
+      const lastSeenKey = getLastSeenKey(user.uid);
+
+      if (markAsSeen) {
+        if (latestOtherPostTime > 0) {
+          await AsyncStorage.setItem(lastSeenKey, String(latestOtherPostTime));
+        }
+
+        clearUnreadSocialCount?.();
+        return;
+      }
+
+      const savedLastSeen = await AsyncStorage.getItem(lastSeenKey);
+
+      if (!savedLastSeen) {
+        if (latestOtherPostTime > 0) {
+          await AsyncStorage.setItem(lastSeenKey, String(latestOtherPostTime));
+        }
+
+        updateUnreadSocialCount?.(0);
+        return;
+      }
+
+      const lastSeenTime = Number(savedLastSeen) || 0;
+
+      const unreadCount = otherPosts.filter((post) => {
+        return getPostTime(post) > lastSeenTime;
+      }).length;
+
+      updateUnreadSocialCount?.(unreadCount);
+    },
+    [clearUnreadSocialCount, updateUnreadSocialCount, user?.uid]
+  );
+
+  const loadPosts = useCallback(
+    async ({ markAsSeen = false, silent = false } = {}) => {
+      try {
+        if (!silent) {
+          setError("");
+        }
+
+        if (!user?.uid) return;
+
+        const response = await getPosts({
+          uid: user.uid,
+          maxResults: 50,
+        });
+
+        setPosts(response);
+
+        await syncUnreadCount({
+          loadedPosts: response,
+          markAsSeen,
+        });
+      } catch (err) {
+        if (!silent) {
+          setError(err?.message || "No se pudieron cargar las publicaciones.");
+        }
+      } finally {
+        if (!silent) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }
+    },
+    [syncUnreadCount, user?.uid]
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      isFocusedRef.current = true;
+
+      loadPosts({
+        markAsSeen: true,
+        silent: false,
       });
 
-      setPosts(response);
-    } catch (err) {
-      setError(err?.message || "No se pudieron cargar las publicaciones.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [user?.uid]);
+      return () => {
+        isFocusedRef.current = false;
+      };
+    }, [loadPosts])
+  );
 
   useEffect(() => {
-    loadPosts();
-  }, [loadPosts]);
+    if (!user?.uid) return;
+
+    const interval = setInterval(() => {
+      if (isFocusedRef.current) return;
+
+      loadPosts({
+        markAsSeen: false,
+        silent: true,
+      });
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [loadPosts, user?.uid]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await loadPosts();
+
+    await loadPosts({
+      markAsSeen: true,
+      silent: false,
+    });
   };
 
   const resetPostForm = () => {
@@ -263,7 +382,10 @@ export default function SocialScreen() {
       setPostDialogVisible(false);
       resetPostForm();
 
-      await loadPosts();
+      await loadPosts({
+        markAsSeen: true,
+        silent: false,
+      });
     } catch (err) {
       Alert.alert(
         "Error",
@@ -272,6 +394,55 @@ export default function SocialScreen() {
     } finally {
       setPosting(false);
     }
+  };
+
+  const handleDeletePost = (post) => {
+    if (post.userId !== user?.uid) {
+      Alert.alert(
+        "No permitido",
+        "Solo podés eliminar tus propias publicaciones."
+      );
+      return;
+    }
+
+    Alert.alert(
+      "Eliminar publicación",
+      "¿Querés eliminar esta publicación? Esta acción no se puede deshacer.",
+      [
+        {
+          text: "Cancelar",
+          style: "cancel",
+        },
+        {
+          text: "Eliminar",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setDeletingPostId(post.id);
+
+              await deletePost({
+                uid: user.uid,
+                postId: post.id,
+              });
+
+              setPosts((prev) => prev.filter((item) => item.id !== post.id));
+
+              await loadPosts({
+                markAsSeen: true,
+                silent: true,
+              });
+            } catch (err) {
+              Alert.alert(
+                "Error",
+                err?.message || "No se pudo eliminar la publicación."
+              );
+            } finally {
+              setDeletingPostId(null);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleToggleLike = async (post) => {
@@ -494,9 +665,149 @@ export default function SocialScreen() {
     );
   };
 
+  const renderGoalCompletedCard = (post) => {
+    const goalTitle = post.stats?.goalTitle || "Objetivo";
+    const currentValue = Number(post.stats?.currentValue) || 0;
+    const targetValue = Number(post.stats?.targetValue) || 0;
+    const unit = post.stats?.unit || "";
+
+    const progress =
+      targetValue > 0
+        ? Math.min(100, Math.round((currentValue / targetValue) * 100))
+        : 100;
+
+    return (
+      <View
+        style={[
+          styles.goalCompletedBox,
+          { backgroundColor: theme.custom.softPrimary },
+        ]}
+      >
+        <View style={styles.goalCompletedHeader}>
+          <View
+            style={[
+              styles.goalCompletedIcon,
+              { backgroundColor: theme.colors.primary },
+            ]}
+          >
+            <Text
+              variant="titleLarge"
+              style={{
+                color: theme.colors.onPrimary,
+                fontWeight: "900",
+              }}
+            >
+              ✓
+            </Text>
+          </View>
+
+          <View style={styles.goalCompletedTextBox}>
+            <Text
+              variant="titleMedium"
+              numberOfLines={1}
+              style={{
+                color: theme.colors.onSurface,
+                fontWeight: "900",
+              }}
+            >
+              {goalTitle}
+            </Text>
+
+            <Text
+              variant="bodySmall"
+              style={{
+                color: theme.colors.onSurfaceVariant,
+                marginTop: 3,
+              }}
+            >
+              Objetivo completado al {progress}%
+            </Text>
+          </View>
+
+          <Chip
+            compact
+            icon="trophy-outline"
+            style={{ backgroundColor: theme.colors.surface }}
+            textStyle={{
+              color: theme.colors.primary,
+              fontWeight: "900",
+            }}
+          >
+            Cumplido
+          </Chip>
+        </View>
+
+        <ProgressBar
+          progress={progress / 100}
+          color={theme.colors.primary}
+          style={[
+            styles.goalCompletedProgress,
+            { backgroundColor: theme.colors.surface },
+          ]}
+        />
+
+        <View style={styles.goalCompletedStats}>
+          <View style={styles.statItem}>
+            <Text
+              variant="titleMedium"
+              style={{ color: theme.colors.primary, fontWeight: "900" }}
+            >
+              {formatNumber(currentValue)}
+              {unit ? ` ${unit}` : ""}
+            </Text>
+
+            <Text
+              variant="bodySmall"
+              style={{ color: theme.colors.onSurfaceVariant }}
+            >
+              Alcanzado
+            </Text>
+          </View>
+
+          <View style={styles.statItem}>
+            <Text
+              variant="titleMedium"
+              style={{ color: theme.colors.primary, fontWeight: "900" }}
+            >
+              {formatNumber(targetValue)}
+              {unit ? ` ${unit}` : ""}
+            </Text>
+
+            <Text
+              variant="bodySmall"
+              style={{ color: theme.colors.onSurfaceVariant }}
+            >
+              Meta
+            </Text>
+          </View>
+
+          <View style={styles.statItem}>
+            <Text
+              variant="titleMedium"
+              style={{ color: theme.colors.primary, fontWeight: "900" }}
+            >
+              {progress}%
+            </Text>
+
+            <Text
+              variant="bodySmall"
+              style={{ color: theme.colors.onSurfaceVariant }}
+            >
+              Progreso
+            </Text>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
   const renderStatsCard = (post) => {
     if (post.type === "weekly_progress") {
       return renderWeeklyProgressCard(post);
+    }
+
+    if (post.type === "goal_completed") {
+      return renderGoalCompletedCard(post);
     }
 
     if (post.type === "exercise_progress") {
@@ -665,6 +976,7 @@ export default function SocialScreen() {
             ) : (
               posts.map((post) => {
                 const typeData = getPostTypeData(post);
+                const isMyPost = post.userId === user?.uid;
 
                 return (
                   <Card
@@ -713,18 +1025,63 @@ export default function SocialScreen() {
                           </Text>
                         </View>
 
-                        <Chip
-                          compact
-                          icon={typeData.icon}
-                          style={{ backgroundColor: theme.custom.softPrimary }}
-                          textStyle={{
-                            color: theme.colors.primary,
-                            fontWeight: "800",
-                          }}
-                        >
-                          {typeData.label}
-                        </Chip>
+                        {isMyPost ? (
+                          <IconButton
+                            icon="trash-can-outline"
+                            size={21}
+                            loading={deletingPostId === post.id}
+                            disabled={!!deletingPostId}
+                            iconColor={theme.colors.error}
+                            onPress={() => handleDeletePost(post)}
+                          />
+                        ) : (
+                          <Chip
+                            compact
+                            icon={typeData.icon}
+                            style={{
+                              backgroundColor: theme.custom.softPrimary,
+                            }}
+                            textStyle={{
+                              color: theme.colors.primary,
+                              fontWeight: "800",
+                            }}
+                          >
+                            {typeData.label}
+                          </Chip>
+                        )}
                       </View>
+
+                      {isMyPost && (
+                        <View style={styles.myPostChipRow}>
+                          <Chip
+                            compact
+                            icon={typeData.icon}
+                            style={{
+                              backgroundColor: theme.custom.softPrimary,
+                            }}
+                            textStyle={{
+                              color: theme.colors.primary,
+                              fontWeight: "800",
+                            }}
+                          >
+                            {typeData.label}
+                          </Chip>
+
+                          <Chip
+                            compact
+                            icon="account-check-outline"
+                            style={{
+                              backgroundColor: theme.colors.surfaceVariant,
+                            }}
+                            textStyle={{
+                              color: theme.colors.onSurfaceVariant,
+                              fontWeight: "800",
+                            }}
+                          >
+                            Tu publicación
+                          </Chip>
+                        </View>
+                      )}
 
                       {!!post.text && (
                         <Text
@@ -1168,6 +1525,12 @@ const styles = StyleSheet.create({
     marginLeft: 12,
     marginRight: 10,
   },
+  myPostChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 14,
+  },
   postText: {
     marginTop: 16,
     lineHeight: 24,
@@ -1197,6 +1560,37 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     marginTop: 14,
     marginBottom: 14,
+  },
+  goalCompletedBox: {
+    borderRadius: 22,
+    padding: 14,
+    marginTop: 16,
+  },
+  goalCompletedHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  goalCompletedIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  goalCompletedTextBox: {
+    flex: 1,
+    marginRight: 10,
+  },
+  goalCompletedProgress: {
+    height: 9,
+    borderRadius: 999,
+    marginTop: 14,
+    marginBottom: 14,
+  },
+  goalCompletedStats: {
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
   statsBox: {
     borderRadius: 22,

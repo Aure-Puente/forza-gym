@@ -17,6 +17,9 @@ export default function TabNavigator({
     setThemeMode,
     colorPreset,
     setColorPreset,
+    unreadSocialCount,
+    updateUnreadSocialCount,
+    clearUnreadSocialCount,
     }) {
     const theme = useTheme();
 
@@ -39,6 +42,25 @@ export default function TabNavigator({
             fontSize: 11,
             fontWeight: "700",
             },
+            tabBarBadge:
+            route.name === "Social" && unreadSocialCount > 0
+                ? unreadSocialCount > 99
+                ? "99+"
+                : unreadSocialCount
+                : undefined,
+            tabBarBadgeStyle:
+            route.name === "Social"
+                ? {
+                    backgroundColor: theme.colors.primary,
+                    color: theme.colors.onPrimary,
+                    fontSize: 10,
+                    fontWeight: "900",
+                    minWidth: 18,
+                    height: 18,
+                    borderRadius: 9,
+                    lineHeight: 16,
+                }
+                : undefined,
             tabBarIcon: ({ color, size, focused }) => {
             const iconSize = focused ? size + 1 : size;
 
@@ -93,9 +115,21 @@ export default function TabNavigator({
         })}
         >
         <Tab.Screen name="Inicio" component={HomeScreen} />
+
         <Tab.Screen name="Registro" component={RecordScreen} />
+
         <Tab.Screen name="Entreno" component={TrainingScreen} />
-        <Tab.Screen name="Social" component={SocialScreen} />
+
+        <Tab.Screen name="Social">
+            {(props) => (
+            <SocialScreen
+                {...props}
+                unreadSocialCount={unreadSocialCount}
+                updateUnreadSocialCount={updateUnreadSocialCount}
+                clearUnreadSocialCount={clearUnreadSocialCount}
+            />
+            )}
+        </Tab.Screen>
 
         <Tab.Screen name="Perfil">
             {(props) => (
