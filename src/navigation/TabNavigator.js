@@ -1,0 +1,113 @@
+//Importaciones:
+import React from "react";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { useTheme } from "react-native-paper";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import HomeScreen from "../screens/HomeScreen";
+import RecordScreen from "../screens/RecordScreen";
+import TrainingScreen from "../screens/TrainingScreen";
+import SocialScreen from "../screens/SocialScreen";
+import ProfileScreen from "../screens/ProfileScreen";
+
+//JS:
+const Tab = createBottomTabNavigator();
+
+export default function TabNavigator({
+    themeMode,
+    setThemeMode,
+    colorPreset,
+    setColorPreset,
+    }) {
+    const theme = useTheme();
+
+    return (
+        <Tab.Navigator
+        initialRouteName="Inicio"
+        screenOptions={({ route }) => ({
+            headerShown: false,
+            tabBarShowLabel: true,
+            tabBarActiveTintColor: theme.colors.primary,
+            tabBarInactiveTintColor: theme.colors.onSurfaceVariant,
+            tabBarStyle: {
+            height: 72,
+            paddingTop: 8,
+            paddingBottom: 10,
+            backgroundColor: theme.colors.surface,
+            borderTopColor: theme.colors.outlineVariant,
+            },
+            tabBarLabelStyle: {
+            fontSize: 11,
+            fontWeight: "700",
+            },
+            tabBarIcon: ({ color, size, focused }) => {
+            const iconSize = focused ? size + 1 : size;
+
+            if (route.name === "Inicio") {
+                return (
+                <Ionicons
+                    name={focused ? "home" : "home-outline"}
+                    size={iconSize}
+                    color={color}
+                />
+                );
+            }
+
+            if (route.name === "Registro") {
+                return (
+                <MaterialCommunityIcons
+                    name={focused ? "chart-box" : "chart-box-outline"}
+                    size={iconSize}
+                    color={color}
+                />
+                );
+            }
+
+            if (route.name === "Entreno") {
+                return (
+                <MaterialCommunityIcons
+                    name="dumbbell"
+                    size={iconSize}
+                    color={color}
+                />
+                );
+            }
+
+            if (route.name === "Social") {
+                return (
+                <Ionicons
+                    name={focused ? "people" : "people-outline"}
+                    size={iconSize}
+                    color={color}
+                />
+                );
+            }
+
+            return (
+                <Ionicons
+                name={focused ? "person" : "person-outline"}
+                size={iconSize}
+                color={color}
+                />
+            );
+            },
+        })}
+        >
+        <Tab.Screen name="Inicio" component={HomeScreen} />
+        <Tab.Screen name="Registro" component={RecordScreen} />
+        <Tab.Screen name="Entreno" component={TrainingScreen} />
+        <Tab.Screen name="Social" component={SocialScreen} />
+
+        <Tab.Screen name="Perfil">
+            {(props) => (
+            <ProfileScreen
+                {...props}
+                themeMode={themeMode}
+                setThemeMode={setThemeMode}
+                colorPreset={colorPreset}
+                setColorPreset={setColorPreset}
+            />
+            )}
+        </Tab.Screen>
+        </Tab.Navigator>
+    );
+}
