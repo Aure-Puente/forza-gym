@@ -1,24 +1,35 @@
 {
   "expo": {
     "name": "Forte",
-    "slug": "Forte",
+    "slug": "forte",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "icon": "./assets/logo-dark.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/logo-dark.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#05080f"
+    },
     "ios": {
       "supportsTablet": true
     },
     "android": {
+      "package": "com.aure.forte",
+      "versionCode": 1,
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#05080f",
+        "foregroundImage": "./assets/adaptive-icon.png"
       }
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/adaptive-icon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "c3c03a48-780c-4be4-b5b6-c06d74c5742e"
+      }
     }
   }
 }

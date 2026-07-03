@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Image,
+  KeyboardAvoidingView,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -15,7 +17,6 @@ import {
   Card,
   Chip,
   Dialog,
-  FAB,
   IconButton,
   ProgressBar,
   Portal,
@@ -121,6 +122,7 @@ export default function SocialScreen({
   const isFocusedRef = useRef(false);
 
   const [posts, setPosts] = useState([]);
+  const [commentsPreviewByPost, setCommentsPreviewByPost] = useState({});
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -131,6 +133,10 @@ export default function SocialScreen({
   const [selectedImageUri, setSelectedImageUri] = useState(null);
   const [posting, setPosting] = useState(false);
 
+  const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
+  const [postToDelete, setPostToDelete] = useState(null);
+  const [deletingPostId, setDeletingPostId] = useState(null);
+
   const [commentsDialogVisible, setCommentsDialogVisible] = useState(false);
   const [selectedPost, setSelectedPost] = useState(null);
   const [comments, setComments] = useState([]);
@@ -139,9 +145,36 @@ export default function SocialScreen({
   const [commentPosting, setCommentPosting] = useState(false);
 
   const [likingPostId, setLikingPostId] = useState(null);
-  const [deletingPostId, setDeletingPostId] = useState(null);
 
   const [error, setError] = useState("");
+
+  const softPrimary =
+    theme.custom?.softPrimary ||
+    (theme.dark ? "rgba(37, 99, 235, 0.18)" : "rgba(37, 99, 235, 0.1)");
+
+  const premiumSurface = theme.dark
+    ? "rgba(255,255,255,0.045)"
+    : "rgba(255,255,255,0.92)";
+
+  const premiumBorder = theme.dark
+    ? "rgba(255,255,255,0.09)"
+    : "rgba(15,23,42,0.08)";
+
+  const mutedSurface = theme.dark
+    ? "rgba(255,255,255,0.055)"
+    : "rgba(15,23,42,0.035)";
+
+  const dangerSoft = theme.dark
+    ? "rgba(248,113,113,0.12)"
+    : "rgba(220,38,38,0.07)";
+
+  const dangerColor = theme.dark ? "#FCA5A5" : "#B91C1C";
+
+  const successSoft = theme.dark
+    ? "rgba(34,197,94,0.13)"
+    : "rgba(22,163,74,0.08)";
+
+  const successColor = theme.dark ? "#86EFAC" : "#15803D";
 
   const getUserPostData = () => {
     return {
@@ -149,6 +182,37 @@ export default function SocialScreen({
       userPhotoURL: userProfile?.photoURL || user?.photoURL || null,
     };
   };
+
+  const loadCommentsPreviews = useCallback(async (loadedPosts) => {
+    try {
+      const postsWithComments = loadedPosts.filter((post) => {
+        return Number(post.commentsCount) > 0;
+      });
+
+      if (postsWithComments.length === 0) {
+        setCommentsPreviewByPost({});
+        return;
+      }
+
+      const entries = await Promise.all(
+        postsWithComments.map(async (post) => {
+          try {
+            const response = await getPostComments({
+              postId: post.id,
+            });
+
+            return [post.id, response.slice(0, 2)];
+          } catch {
+            return [post.id, []];
+          }
+        })
+      );
+
+      setCommentsPreviewByPost(Object.fromEntries(entries));
+    } catch {
+      setCommentsPreviewByPost({});
+    }
+  }, []);
 
   const syncUnreadCount = useCallback(
     async ({ loadedPosts, markAsSeen = false }) => {
@@ -209,6 +273,8 @@ export default function SocialScreen({
 
         setPosts(response);
 
+        await loadCommentsPreviews(response);
+
         await syncUnreadCount({
           loadedPosts: response,
           markAsSeen,
@@ -224,7 +290,7 @@ export default function SocialScreen({
         }
       }
     },
-    [syncUnreadCount, user?.uid]
+    [loadCommentsPreviews, syncUnreadCount, user?.uid]
   );
 
   useFocusEffect(
@@ -396,7 +462,7 @@ export default function SocialScreen({
     }
   };
 
-  const handleDeletePost = (post) => {
+  const openDeleteDialog = (post) => {
     if (post.userId !== user?.uid) {
       Alert.alert(
         "No permitido",
@@ -405,47 +471,52 @@ export default function SocialScreen({
       return;
     }
 
-    Alert.alert(
-      "Eliminar publicación",
-      "¿Querés eliminar esta publicación? Esta acción no se puede deshacer.",
-      [
-        {
-          text: "Cancelar",
-          style: "cancel",
-        },
-        {
-          text: "Eliminar",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              setDeletingPostId(post.id);
-
-              await deletePost({
-                uid: user.uid,
-                postId: post.id,
-              });
-
-              setPosts((prev) => prev.filter((item) => item.id !== post.id));
-
-              await loadPosts({
-                markAsSeen: true,
-                silent: true,
-              });
-            } catch (err) {
-              Alert.alert(
-                "Error",
-                err?.message || "No se pudo eliminar la publicación."
-              );
-            } finally {
-              setDeletingPostId(null);
-            }
-          },
-        },
-      ]
-    );
+    setPostToDelete(post);
+    setDeleteDialogVisible(true);
   };
 
-  const handleToggleLike = async (post) => {
+  const closeDeleteDialog = () => {
+    if (deletingPostId) return;
+
+    setDeleteDialogVisible(false);
+    setPostToDelete(null);
+  };
+
+  const handleConfirmDeletePost = async () => {
+    try {
+      if (!postToDelete?.id) return;
+
+      setDeletingPostId(postToDelete.id);
+
+      await deletePost({
+        uid: user.uid,
+        postId: postToDelete.id,
+      });
+
+      setPosts((prev) => prev.filter((item) => item.id !== postToDelete.id));
+
+      setCommentsPreviewByPost((prev) => {
+        const next = { ...prev };
+        delete next[postToDelete.id];
+        return next;
+      });
+
+      closeDeleteDialog();
+
+      await loadPosts({
+        markAsSeen: true,
+        silent: true,
+      });
+    } catch (err) {
+      Alert.alert(
+        "Error",
+        err?.message || "No se pudo eliminar la publicación."
+      );
+    } finally {
+      setDeletingPostId(null);
+    }
+  };
+    const handleToggleLike = async (post) => {
     try {
       setLikingPostId(post.id);
 
@@ -489,6 +560,11 @@ export default function SocialScreen({
       });
 
       setComments(response);
+
+      setCommentsPreviewByPost((prev) => ({
+        ...prev,
+        [post.id]: response.slice(0, 2),
+      }));
     } catch (err) {
       Alert.alert(
         "Error",
@@ -537,6 +613,11 @@ export default function SocialScreen({
 
       setComments(response);
 
+      setCommentsPreviewByPost((prev) => ({
+        ...prev,
+        [selectedPost.id]: response.slice(0, 2),
+      }));
+
       setPosts((prev) =>
         prev.map((item) =>
           item.id === selectedPost.id
@@ -569,7 +650,10 @@ export default function SocialScreen({
       <View
         style={[
           styles.weeklyBox,
-          { backgroundColor: theme.colors.surfaceVariant },
+          {
+            backgroundColor: mutedSurface,
+            borderColor: premiumBorder,
+          },
         ]}
       >
         <View style={styles.weeklyTopRow}>
@@ -594,13 +678,30 @@ export default function SocialScreen({
             </Text>
           </View>
 
-          <ProgressDonut
-            progress={weeklyProgress}
-            size={82}
-            strokeWidth={9}
-            label={`${weeklyProgress}%`}
-            subLabel=""
-          />
+          <View style={styles.weeklyDonutBox}>
+            <ProgressDonut
+              progress={weeklyProgress}
+              size={82}
+              strokeWidth={9}
+              label=""
+              subLabel=""
+            />
+
+            <View style={styles.weeklyDonutCenter}>
+              <Text
+                variant="titleMedium"
+                style={{
+                  color: theme.colors.primary,
+                  fontWeight: "900",
+                  textAlign: "center",
+                  includeFontPadding: false,
+                  lineHeight: 22,
+                }}
+              >
+                {weeklyProgress}%
+              </Text>
+            </View>
+          </View>
         </View>
 
         <ProgressBar
@@ -608,7 +709,11 @@ export default function SocialScreen({
           color={theme.colors.primary}
           style={[
             styles.weeklyProgressBar,
-            { backgroundColor: theme.colors.surface },
+            {
+              backgroundColor: theme.dark
+                ? "rgba(255,255,255,0.08)"
+                : "rgba(15,23,42,0.08)",
+            },
           ]}
         />
 
@@ -680,34 +785,37 @@ export default function SocialScreen({
       <View
         style={[
           styles.goalCompletedBox,
-          { backgroundColor: theme.custom.softPrimary },
+          {
+            backgroundColor: successSoft,
+            borderColor: theme.dark
+              ? "rgba(134,239,172,0.22)"
+              : "rgba(22,163,74,0.16)",
+          },
         ]}
       >
         <View style={styles.goalCompletedHeader}>
           <View
             style={[
               styles.goalCompletedIcon,
-              { backgroundColor: theme.colors.primary },
+              { backgroundColor: successColor },
             ]}
           >
-            <Text
-              variant="titleLarge"
-              style={{
-                color: theme.colors.onPrimary,
-                fontWeight: "900",
-              }}
-            >
-              ✓
-            </Text>
+            <IconButton
+              icon="check-bold"
+              size={20}
+              iconColor={theme.colors.background}
+              style={styles.goalCompletedIconButton}
+            />
           </View>
 
           <View style={styles.goalCompletedTextBox}>
             <Text
               variant="titleMedium"
-              numberOfLines={1}
+              numberOfLines={2}
               style={{
                 color: theme.colors.onSurface,
                 fontWeight: "900",
+                lineHeight: 22,
               }}
             >
               {goalTitle}
@@ -724,25 +832,36 @@ export default function SocialScreen({
             </Text>
           </View>
 
-          <Chip
-            compact
-            icon="trophy-outline"
-            style={{ backgroundColor: theme.colors.surface }}
-            textStyle={{
-              color: theme.colors.primary,
-              fontWeight: "900",
-            }}
+          <View
+            style={[
+              styles.completedBadge,
+              {
+                backgroundColor: successColor,
+              },
+            ]}
           >
-            Cumplido
-          </Chip>
+            <Text
+              variant="labelSmall"
+              style={{
+                color: theme.colors.background,
+                fontWeight: "900",
+              }}
+            >
+              OK
+            </Text>
+          </View>
         </View>
 
         <ProgressBar
           progress={progress / 100}
-          color={theme.colors.primary}
+          color={successColor}
           style={[
             styles.goalCompletedProgress,
-            { backgroundColor: theme.colors.surface },
+            {
+              backgroundColor: theme.dark
+                ? "rgba(255,255,255,0.08)"
+                : "rgba(15,23,42,0.08)",
+            },
           ]}
         />
 
@@ -750,7 +869,7 @@ export default function SocialScreen({
           <View style={styles.statItem}>
             <Text
               variant="titleMedium"
-              style={{ color: theme.colors.primary, fontWeight: "900" }}
+              style={{ color: successColor, fontWeight: "900" }}
             >
               {formatNumber(currentValue)}
               {unit ? ` ${unit}` : ""}
@@ -767,7 +886,7 @@ export default function SocialScreen({
           <View style={styles.statItem}>
             <Text
               variant="titleMedium"
-              style={{ color: theme.colors.primary, fontWeight: "900" }}
+              style={{ color: successColor, fontWeight: "900" }}
             >
               {formatNumber(targetValue)}
               {unit ? ` ${unit}` : ""}
@@ -784,7 +903,7 @@ export default function SocialScreen({
           <View style={styles.statItem}>
             <Text
               variant="titleMedium"
-              style={{ color: theme.colors.primary, fontWeight: "900" }}
+              style={{ color: successColor, fontWeight: "900" }}
             >
               {progress}%
             </Text>
@@ -815,7 +934,10 @@ export default function SocialScreen({
         <View
           style={[
             styles.statsBox,
-            { backgroundColor: theme.colors.surfaceVariant },
+            {
+              backgroundColor: mutedSurface,
+              borderColor: premiumBorder,
+            },
           ]}
         >
           <View style={styles.statsRow}>
@@ -875,28 +997,239 @@ export default function SocialScreen({
     return null;
   };
 
+  const renderCommentsPreview = (post) => {
+    const previewComments = commentsPreviewByPost[post.id] || [];
+    const totalComments = Number(post.commentsCount) || 0;
+
+    if (previewComments.length === 0 && totalComments === 0) return null;
+
+    return (
+      <View
+        style={[
+          styles.commentsPreviewBox,
+          {
+            backgroundColor: mutedSurface,
+            borderColor: premiumBorder,
+          },
+        ]}
+      >
+        {previewComments.map((comment) => (
+          <View key={comment.id} style={styles.previewCommentItem}>
+            {comment.userPhotoURL ? (
+              <Avatar.Image
+                size={30}
+                source={{ uri: comment.userPhotoURL }}
+              />
+            ) : (
+              <Avatar.Text
+                size={30}
+                label={getInitial(comment.userName)}
+                style={{ backgroundColor: softPrimary }}
+                color={theme.colors.primary}
+                labelStyle={{ fontWeight: "900" }}
+              />
+            )}
+
+            <View style={styles.previewCommentTextBox}>
+              <Text
+                variant="labelSmall"
+                numberOfLines={1}
+                style={{
+                  color: theme.colors.onSurface,
+                  fontWeight: "900",
+                }}
+              >
+                {comment.userName || "Usuario Forte"}
+              </Text>
+
+              <Text
+                variant="bodySmall"
+                numberOfLines={2}
+                style={{
+                  color: theme.colors.onSurfaceVariant,
+                  marginTop: 1,
+                  lineHeight: 18,
+                }}
+              >
+                {comment.text}
+              </Text>
+            </View>
+          </View>
+        ))}
+
+        {totalComments > previewComments.length && (
+          <TouchableRipple
+            borderless
+            onPress={() => openComments(post)}
+            style={styles.moreCommentsButton}
+          >
+            <View style={styles.moreCommentsContent}>
+              <IconButton
+                icon="comment-multiple-outline"
+                size={15}
+                iconColor={theme.colors.primary}
+                style={styles.moreCommentsIcon}
+              />
+
+              <Text
+                variant="bodySmall"
+                style={{
+                  color: theme.colors.primary,
+                  fontWeight: "900",
+                }}
+              >
+                Ver {totalComments - previewComments.length} comentario
+                {totalComments - previewComments.length === 1 ? "" : "s"} más
+              </Text>
+            </View>
+          </TouchableRipple>
+        )}
+      </View>
+    );
+  };
+
+  const renderPostModeOption = ({ value, label, description, icon, onPress }) => {
+    const selected =
+      value === "text"
+        ? postMode === "text"
+        : postMode === "photo" && selectedImageUri;
+
+    return (
+      <TouchableRipple
+        borderless
+        disabled={posting}
+        onPress={onPress}
+        style={[
+          styles.postModeOption,
+          {
+            backgroundColor: selected ? softPrimary : mutedSurface,
+            borderColor: selected ? theme.colors.primary : premiumBorder,
+            opacity: posting ? 0.6 : 1,
+          },
+        ]}
+      >
+        <View style={styles.postModeOptionContent}>
+          <View
+            style={[
+              styles.postModeIconBox,
+              {
+                backgroundColor: selected
+                  ? theme.colors.primary
+                  : theme.colors.surface,
+                borderColor: selected ? theme.colors.primary : premiumBorder,
+              },
+            ]}
+          >
+            <IconButton
+              icon={icon}
+              size={19}
+              iconColor={
+                selected
+                  ? theme.colors.onPrimary
+                  : theme.colors.onSurfaceVariant
+              }
+              style={styles.postModeIcon}
+            />
+          </View>
+
+          <View style={styles.postModeTextBox}>
+            <Text
+              variant="labelLarge"
+              numberOfLines={1}
+              style={{
+                color: selected ? theme.colors.primary : theme.colors.onSurface,
+                fontWeight: "900",
+              }}
+            >
+              {label}
+            </Text>
+
+            <Text
+              variant="bodySmall"
+              numberOfLines={1}
+              style={{
+                color: theme.colors.onSurfaceVariant,
+                marginTop: 1,
+              }}
+            >
+              {description}
+            </Text>
+          </View>
+
+          {selected && (
+            <View
+              style={[
+                styles.modeSelectedBadge,
+                { backgroundColor: theme.colors.primary },
+              ]}
+            >
+              <IconButton
+                icon="check"
+                size={12}
+                iconColor={theme.colors.onPrimary}
+                style={styles.modeSelectedIcon}
+              />
+            </View>
+          )}
+        </View>
+      </TouchableRipple>
+    );
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <ScrollView
         style={{ backgroundColor: theme.colors.background }}
         contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
       >
-        <Text
-          variant="headlineMedium"
-          style={[styles.title, { color: theme.colors.onBackground }]}
-        >
-          Social
-        </Text>
+        <View style={styles.header}>
+          <View
+            style={[
+              styles.eyebrowPill,
+              {
+                backgroundColor: softPrimary,
+                borderColor: premiumBorder,
+              },
+            ]}
+          >
+            <IconButton
+              icon="account-group-outline"
+              size={15}
+              iconColor={theme.colors.primary}
+              style={styles.eyebrowIcon}
+            />
 
-        <Text
-          variant="bodyMedium"
-          style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]}
-        >
-          Compartí progreso, fotos y entrenamientos con otros usuarios.
-        </Text>
+            <Text
+              variant="labelSmall"
+              style={{
+                color: theme.colors.primary,
+                fontWeight: "900",
+                letterSpacing: 0.7,
+              }}
+            >
+              FORTE SOCIAL
+            </Text>
+          </View>
+
+          <Text
+            variant="headlineMedium"
+            style={[styles.title, { color: theme.colors.onBackground }]}
+          >
+            Social
+          </Text>
+
+          <Text
+            variant="bodyMedium"
+            style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]}
+          >
+            Compartí progreso, fotos y entrenamientos con otros usuarios.
+          </Text>
+        </View>
 
         <Button
           mode="contained"
@@ -945,16 +1278,36 @@ export default function SocialScreen({
                 mode="contained"
                 style={[
                   styles.emptyCard,
-                  { backgroundColor: theme.colors.surface },
+                  {
+                    backgroundColor: premiumSurface,
+                    borderColor: premiumBorder,
+                  },
                 ]}
               >
-                <Card.Content>
+                <Card.Content style={styles.emptyContent}>
+                  <View
+                    style={[
+                      styles.emptyIcon,
+                      {
+                        backgroundColor: softPrimary,
+                      },
+                    ]}
+                  >
+                    <IconButton
+                      icon="message-text-outline"
+                      size={31}
+                      iconColor={theme.colors.primary}
+                      style={styles.emptyIconButton}
+                    />
+                  </View>
+
                   <Text
                     variant="titleLarge"
                     style={{
                       color: theme.colors.onSurface,
                       fontWeight: "900",
                       textAlign: "center",
+                      letterSpacing: -0.3,
                     }}
                   >
                     Todavía no hay publicaciones
@@ -984,24 +1337,28 @@ export default function SocialScreen({
                     mode="contained"
                     style={[
                       styles.postCard,
-                      { backgroundColor: theme.colors.surface },
+                      {
+                        backgroundColor: premiumSurface,
+                        borderColor: premiumBorder,
+                      },
                     ]}
                   >
-                    <Card.Content>
+                    <Card.Content style={styles.postCardContent}>
                       <View style={styles.postHeader}>
                         {post.userPhotoURL ? (
                           <Avatar.Image
-                            size={46}
+                            size={48}
                             source={{ uri: post.userPhotoURL }}
                           />
                         ) : (
                           <Avatar.Text
-                            size={46}
+                            size={48}
                             label={getInitial(post.userName)}
                             style={{
-                              backgroundColor: theme.custom.softPrimary,
+                              backgroundColor: softPrimary,
                             }}
                             color={theme.colors.primary}
+                            labelStyle={{ fontWeight: "900" }}
                           />
                         )}
 
@@ -1012,6 +1369,7 @@ export default function SocialScreen({
                             style={{
                               color: theme.colors.onSurface,
                               fontWeight: "900",
+                              letterSpacing: -0.2,
                             }}
                           >
                             {post.userName || "Usuario Forte"}
@@ -1019,7 +1377,10 @@ export default function SocialScreen({
 
                           <Text
                             variant="bodySmall"
-                            style={{ color: theme.colors.onSurfaceVariant }}
+                            style={{
+                              color: theme.colors.onSurfaceVariant,
+                              marginTop: 2,
+                            }}
                           >
                             {formatPostDate(post.createdDate)}
                           </Text>
@@ -1031,23 +1392,42 @@ export default function SocialScreen({
                             size={21}
                             loading={deletingPostId === post.id}
                             disabled={!!deletingPostId}
-                            iconColor={theme.colors.error}
-                            onPress={() => handleDeletePost(post)}
+                            iconColor={dangerColor}
+                            onPress={() => openDeleteDialog(post)}
+                            style={[
+                              styles.deletePostButton,
+                              {
+                                backgroundColor: dangerSoft,
+                              },
+                            ]}
                           />
                         ) : (
-                          <Chip
-                            compact
-                            icon={typeData.icon}
-                            style={{
-                              backgroundColor: theme.custom.softPrimary,
-                            }}
-                            textStyle={{
-                              color: theme.colors.primary,
-                              fontWeight: "800",
-                            }}
+                          <View
+                            style={[
+                              styles.postTypeBadge,
+                              {
+                                backgroundColor: softPrimary,
+                              },
+                            ]}
                           >
-                            {typeData.label}
-                          </Chip>
+                            <IconButton
+                              icon={typeData.icon}
+                              size={15}
+                              iconColor={theme.colors.primary}
+                              style={styles.postTypeIcon}
+                            />
+
+                            <Text
+                              variant="labelSmall"
+                              numberOfLines={1}
+                              style={{
+                                color: theme.colors.primary,
+                                fontWeight: "900",
+                              }}
+                            >
+                              {typeData.label}
+                            </Text>
+                          </View>
                         )}
                       </View>
 
@@ -1057,7 +1437,7 @@ export default function SocialScreen({
                             compact
                             icon={typeData.icon}
                             style={{
-                              backgroundColor: theme.custom.softPrimary,
+                              backgroundColor: softPrimary,
                             }}
                             textStyle={{
                               color: theme.colors.primary,
@@ -1071,7 +1451,7 @@ export default function SocialScreen({
                             compact
                             icon="account-check-outline"
                             style={{
-                              backgroundColor: theme.colors.surfaceVariant,
+                              backgroundColor: mutedSurface,
                             }}
                             textStyle={{
                               color: theme.colors.onSurfaceVariant,
@@ -1108,7 +1488,7 @@ export default function SocialScreen({
                       <View
                         style={[
                           styles.postActions,
-                          { borderColor: theme.colors.outlineVariant },
+                          { borderColor: premiumBorder },
                         ]}
                       >
                         <Button
@@ -1123,6 +1503,7 @@ export default function SocialScreen({
                               : theme.colors.onSurfaceVariant
                           }
                           onPress={() => handleToggleLike(post)}
+                          style={styles.socialActionButton}
                         >
                           {post.likesCount || 0}
                         </Button>
@@ -1133,10 +1514,13 @@ export default function SocialScreen({
                           icon="comment-outline"
                           textColor={theme.colors.onSurfaceVariant}
                           onPress={() => openComments(post)}
+                          style={styles.socialActionButton}
                         >
                           {post.commentsCount || 0}
                         </Button>
                       </View>
+
+                      {renderCommentsPreview(post)}
                     </Card.Content>
                   </Card>
                 );
@@ -1146,395 +1530,658 @@ export default function SocialScreen({
         )}
       </ScrollView>
 
-      {!loading && posts.length > 0 && (
-        <FAB
-          icon="plus"
-          label="Post"
-          style={[styles.fab, { backgroundColor: theme.colors.primary }]}
-          color={theme.colors.onPrimary}
-          onPress={openCreatePost}
-        />
-      )}
-
       <Portal>
-        <Dialog
-          visible={postDialogVisible}
-          onDismiss={closeCreatePost}
-          style={{ backgroundColor: theme.colors.surface }}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
+          pointerEvents="box-none"
+          style={styles.keyboardAvoidingView}
         >
-          <Dialog.Title>Nueva publicación</Dialog.Title>
-
-          <Dialog.ScrollArea>
-            <ScrollView
-              contentContainerStyle={styles.postDialogContent}
-              keyboardShouldPersistTaps="handled"
-            >
-              <View style={styles.postOptionsRow}>
-                <TouchableRipple
-                  borderless
-                  onPress={() => {
-                    setPostMode("text");
-                    setSelectedImageUri(null);
-                  }}
-                  style={[
-                    styles.postOption,
-                    {
-                      backgroundColor:
-                        postMode === "text"
-                          ? theme.custom.softPrimary
-                          : theme.colors.surfaceVariant,
-                      borderColor:
-                        postMode === "text"
-                          ? theme.colors.primary
-                          : theme.colors.outlineVariant,
-                    },
-                  ]}
-                >
-                  <View style={styles.postOptionInner}>
-                    <IconButton
-                      icon="message-text-outline"
-                      size={22}
-                      iconColor={
-                        postMode === "text"
-                          ? theme.colors.primary
-                          : theme.colors.onSurfaceVariant
-                      }
-                      style={styles.optionIcon}
-                    />
-
-                    <Text
-                      variant="labelMedium"
-                      style={{
-                        color:
-                          postMode === "text"
-                            ? theme.colors.primary
-                            : theme.colors.onSurfaceVariant,
-                        fontWeight: "900",
-                      }}
-                    >
-                      Texto
-                    </Text>
-                  </View>
-                </TouchableRipple>
-
-                <TouchableRipple
-                  borderless
-                  onPress={handlePickImage}
-                  style={[
-                    styles.postOption,
-                    {
-                      backgroundColor:
-                        postMode === "photo" && selectedImageUri
-                          ? theme.custom.softPrimary
-                          : theme.colors.surfaceVariant,
-                      borderColor:
-                        postMode === "photo" && selectedImageUri
-                          ? theme.colors.primary
-                          : theme.colors.outlineVariant,
-                    },
-                  ]}
-                >
-                  <View style={styles.postOptionInner}>
-                    <IconButton
-                      icon="image-outline"
-                      size={22}
-                      iconColor={
-                        postMode === "photo" && selectedImageUri
-                          ? theme.colors.primary
-                          : theme.colors.onSurfaceVariant
-                      }
-                      style={styles.optionIcon}
-                    />
-
-                    <Text
-                      variant="labelMedium"
-                      style={{
-                        color:
-                          postMode === "photo" && selectedImageUri
-                            ? theme.colors.primary
-                            : theme.colors.onSurfaceVariant,
-                        fontWeight: "900",
-                      }}
-                    >
-                      Galería
-                    </Text>
-                  </View>
-                </TouchableRipple>
-
-                <TouchableRipple
-                  borderless
-                  onPress={handleTakePhoto}
-                  style={[
-                    styles.postOption,
-                    {
-                      backgroundColor:
-                        postMode === "photo" && selectedImageUri
-                          ? theme.custom.softPrimary
-                          : theme.colors.surfaceVariant,
-                      borderColor:
-                        postMode === "photo" && selectedImageUri
-                          ? theme.colors.primary
-                          : theme.colors.outlineVariant,
-                    },
-                  ]}
-                >
-                  <View style={styles.postOptionInner}>
-                    <IconButton
-                      icon="camera-outline"
-                      size={22}
-                      iconColor={
-                        postMode === "photo" && selectedImageUri
-                          ? theme.colors.primary
-                          : theme.colors.onSurfaceVariant
-                      }
-                      style={styles.optionIcon}
-                    />
-
-                    <Text
-                      variant="labelMedium"
-                      style={{
-                        color:
-                          postMode === "photo" && selectedImageUri
-                            ? theme.colors.primary
-                            : theme.colors.onSurfaceVariant,
-                        fontWeight: "900",
-                      }}
-                    >
-                      Cámara
-                    </Text>
-                  </View>
-                </TouchableRipple>
+          <Dialog
+            visible={postDialogVisible}
+            onDismiss={closeCreatePost}
+            style={[
+              styles.premiumDialog,
+              {
+                backgroundColor: theme.colors.surface,
+              },
+            ]}
+          >
+            <View style={styles.dialogTopContent}>
+              <View
+                style={[
+                  styles.dialogHeaderIcon,
+                  {
+                    backgroundColor: softPrimary,
+                  },
+                ]}
+              >
+                {posting ? (
+                  <ActivityIndicator size={24} color={theme.colors.primary} />
+                ) : (
+                  <IconButton
+                    icon="plus"
+                    size={25}
+                    iconColor={theme.colors.primary}
+                    style={styles.dialogHeaderIconButton}
+                  />
+                )}
               </View>
 
-              {selectedImageUri && (
-                <Image
-                  source={{ uri: selectedImageUri }}
-                  style={styles.previewImage}
-                  resizeMode="cover"
-                />
-              )}
+              <Text
+                variant="titleLarge"
+                style={{
+                  color: theme.colors.onSurface,
+                  fontWeight: "900",
+                  textAlign: "center",
+                  letterSpacing: -0.3,
+                }}
+              >
+                Nueva publicación
+              </Text>
 
-              <TextInput
-                mode="outlined"
-                label={
-                  postMode === "photo"
-                    ? "Comentario opcional"
-                    : "¿Qué querés compartir?"
-                }
-                value={postText}
-                onChangeText={setPostText}
-                multiline
-                numberOfLines={5}
-                placeholder={
-                  postMode === "photo"
-                    ? "Ej: Entrenamiento terminado 💪"
-                    : "Ej: Hoy completé piernas y subí peso en sentadilla."
-                }
-              />
-            </ScrollView>
-          </Dialog.ScrollArea>
+              <Text
+                variant="bodyMedium"
+                style={{
+                  color: theme.colors.onSurfaceVariant,
+                  textAlign: "center",
+                  marginTop: 6,
+                  lineHeight: 20,
+                }}
+              >
+                Compartí una actualización, una foto o tu progreso.
+              </Text>
+            </View>
 
-          <Dialog.Actions>
-            <Button disabled={posting} onPress={closeCreatePost}>
-              Cancelar
-            </Button>
+            <Dialog.ScrollArea style={styles.postDialogScrollArea}>
+              <ScrollView
+                contentContainerStyle={styles.postDialogContent}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="interactive"
+                showsVerticalScrollIndicator={false}
+              >
+                <View style={styles.postModeGrid}>
+                  {renderPostModeOption({
+                    value: "text",
+                    label: "Texto",
+                    description: "Publicación simple",
+                    icon: "message-text-outline",
+                    onPress: () => {
+                      setPostMode("text");
+                      setSelectedImageUri(null);
+                    },
+                  })}
 
-            <Button
-              mode="contained"
-              loading={posting}
-              disabled={posting}
-              onPress={handleCreatePost}
-            >
-              Publicar
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
+                  {renderPostModeOption({
+                    value: "gallery",
+                    label: "Galería",
+                    description: "Elegir imagen",
+                    icon: "image-outline",
+                    onPress: handlePickImage,
+                  })}
 
-        <Dialog
-          visible={commentsDialogVisible}
-          onDismiss={closeComments}
-          style={{ backgroundColor: theme.colors.surface }}
-        >
-          <Dialog.Title>Comentarios</Dialog.Title>
-
-          <Dialog.ScrollArea>
-            <ScrollView
-              contentContainerStyle={styles.commentsDialogContent}
-              keyboardShouldPersistTaps="handled"
-            >
-              {commentsLoading ? (
-                <View style={styles.commentsLoadingBox}>
-                  <ActivityIndicator />
-                  <Text
-                    variant="bodySmall"
-                    style={{
-                      marginTop: 8,
-                      color: theme.colors.onSurfaceVariant,
-                    }}
-                  >
-                    Cargando comentarios...
-                  </Text>
+                  {renderPostModeOption({
+                    value: "camera",
+                    label: "Cámara",
+                    description: "Sacar foto",
+                    icon: "camera-outline",
+                    onPress: handleTakePhoto,
+                  })}
                 </View>
-              ) : comments.length === 0 ? (
-                <View style={styles.noCommentsBox}>
-                  <Text
-                    variant="titleMedium"
-                    style={{
-                      color: theme.colors.onSurface,
-                      fontWeight: "900",
-                      textAlign: "center",
-                    }}
-                  >
-                    Todavía no hay comentarios
-                  </Text>
 
-                  <Text
-                    variant="bodySmall"
-                    style={{
-                      color: theme.colors.onSurfaceVariant,
-                      textAlign: "center",
-                      marginTop: 6,
-                    }}
-                  >
-                    Sé el primero en comentar.
-                  </Text>
-                </View>
-              ) : (
-                comments.map((comment) => (
+                {selectedImageUri && (
                   <View
-                    key={comment.id}
                     style={[
-                      styles.commentItem,
-                      { borderColor: theme.colors.outlineVariant },
+                      styles.previewImageBox,
+                      {
+                        backgroundColor: mutedSurface,
+                        borderColor: premiumBorder,
+                      },
                     ]}
                   >
-                    {comment.userPhotoURL ? (
-                      <Avatar.Image
-                        size={36}
-                        source={{ uri: comment.userPhotoURL }}
-                      />
-                    ) : (
-                      <Avatar.Text
-                        size={36}
-                        label={getInitial(comment.userName)}
-                        style={{ backgroundColor: theme.custom.softPrimary }}
-                        color={theme.colors.primary}
-                      />
-                    )}
+                    <Image
+                      source={{ uri: selectedImageUri }}
+                      style={styles.previewImage}
+                      resizeMode="cover"
+                    />
 
-                    <View style={styles.commentTextBox}>
-                      <Text
-                        variant="labelLarge"
-                        style={{
-                          color: theme.colors.onSurface,
-                          fontWeight: "900",
-                        }}
-                      >
-                        {comment.userName || "Usuario Forte"}
-                      </Text>
-
-                      <Text
-                        variant="bodyMedium"
-                        style={{
-                          color: theme.colors.onSurfaceVariant,
-                          marginTop: 2,
-                          lineHeight: 20,
-                        }}
-                      >
-                        {comment.text}
-                      </Text>
-                    </View>
+                    <Button
+                      mode="contained-tonal"
+                      compact
+                      icon="close"
+                      style={styles.removeImageButton}
+                      onPress={() => {
+                        setSelectedImageUri(null);
+                        setPostMode("text");
+                      }}
+                    >
+                      Quitar imagen
+                    </Button>
                   </View>
-                ))
-              )}
+                )}
 
-              <TextInput
+                <TextInput
+                  mode="outlined"
+                  label={
+                    postMode === "photo"
+                      ? "Comentario opcional"
+                      : "¿Qué querés compartir?"
+                  }
+                  value={postText}
+                  onChangeText={setPostText}
+                  multiline
+                  numberOfLines={5}
+                  placeholder={
+                    postMode === "photo"
+                      ? "Ej: Entrenamiento terminado 💪"
+                      : "Ej: Hoy completé piernas y subí peso en sentadilla."
+                  }
+                  outlineStyle={{ borderRadius: 16 }}
+                />
+              </ScrollView>
+            </Dialog.ScrollArea>
+
+            <View style={styles.dialogActionsCustom}>
+              <Button
                 mode="outlined"
-                label="Escribí un comentario"
-                value={commentText}
-                onChangeText={setCommentText}
-                multiline
-                numberOfLines={3}
-                style={styles.commentInput}
-              />
-            </ScrollView>
-          </Dialog.ScrollArea>
+                disabled={posting}
+                onPress={closeCreatePost}
+                style={[
+                  styles.dialogActionButton,
+                  {
+                    borderColor: premiumBorder,
+                  },
+                ]}
+                contentStyle={styles.dialogActionContent}
+              >
+                Cancelar
+              </Button>
 
-          <Dialog.Actions>
-            <Button disabled={commentPosting} onPress={closeComments}>
-              Cerrar
-            </Button>
+              <Button
+                mode="contained"
+                icon="send"
+                loading={posting}
+                disabled={posting}
+                onPress={handleCreatePost}
+                style={styles.dialogActionButton}
+                contentStyle={styles.dialogActionContent}
+              >
+                Publicar
+              </Button>
+            </View>
+          </Dialog>
 
-            <Button
-              mode="contained"
-              loading={commentPosting}
-              disabled={commentPosting}
-              onPress={handleCreateComment}
-            >
-              Comentar
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
+          <Dialog
+            visible={deleteDialogVisible}
+            onDismiss={closeDeleteDialog}
+            style={[
+              styles.premiumDialog,
+              {
+                backgroundColor: theme.colors.surface,
+              },
+            ]}
+          >
+            <View style={styles.deleteDialogContent}>
+              <View
+                style={[
+                  styles.deleteIconBox,
+                  {
+                    backgroundColor: dangerSoft,
+                  },
+                ]}
+              >
+                <IconButton
+                  icon="trash-can-outline"
+                  size={30}
+                  iconColor={dangerColor}
+                  style={styles.deleteIcon}
+                />
+              </View>
+
+              <Text
+                variant="titleLarge"
+                style={{
+                  color: theme.colors.onSurface,
+                  fontWeight: "900",
+                  textAlign: "center",
+                  letterSpacing: -0.3,
+                }}
+              >
+                Eliminar publicación
+              </Text>
+
+              <Text
+                variant="bodyMedium"
+                style={{
+                  color: theme.colors.onSurfaceVariant,
+                  textAlign: "center",
+                  marginTop: 8,
+                  lineHeight: 21,
+                }}
+              >
+                Esta publicación se eliminará de Social. Esta acción no se puede
+                deshacer.
+              </Text>
+
+              <View
+                style={[
+                  styles.deletePreview,
+                  {
+                    backgroundColor: mutedSurface,
+                    borderColor: premiumBorder,
+                  },
+                ]}
+              >
+                <Text
+                  variant="labelSmall"
+                  style={{
+                    color: theme.colors.onSurfaceVariant,
+                    fontWeight: "800",
+                    marginBottom: 6,
+                  }}
+                >
+                  PUBLICACIÓN
+                </Text>
+
+                <Text
+                  variant="bodyMedium"
+                  numberOfLines={3}
+                  style={{
+                    color: theme.colors.onSurface,
+                    fontWeight: "800",
+                    textAlign: "center",
+                    lineHeight: 21,
+                  }}
+                >
+                  {postToDelete?.text?.trim()
+                    ? postToDelete.text
+                    : postToDelete?.imageUrl
+                    ? "Publicación con imagen"
+                    : "Publicación de Forte"}
+                </Text>
+              </View>
+
+              <View style={styles.deleteActions}>
+                <Button
+                  mode="outlined"
+                  disabled={!!deletingPostId}
+                  onPress={closeDeleteDialog}
+                  style={[
+                    styles.deleteActionButton,
+                    {
+                      borderColor: premiumBorder,
+                    },
+                  ]}
+                  contentStyle={styles.dialogActionContent}
+                >
+                  Cancelar
+                </Button>
+
+                <Button
+                  mode="contained"
+                  icon="trash-can-outline"
+                  loading={!!deletingPostId}
+                  disabled={!!deletingPostId}
+                  onPress={handleConfirmDeletePost}
+                  buttonColor={dangerColor}
+                  textColor={theme.dark ? "#111827" : "#FFFFFF"}
+                  style={styles.deleteActionButton}
+                  contentStyle={styles.dialogActionContent}
+                >
+                  Eliminar
+                </Button>
+              </View>
+            </View>
+          </Dialog>
+
+          <Dialog
+            visible={commentsDialogVisible}
+            onDismiss={closeComments}
+            style={[
+              styles.premiumDialog,
+              {
+                backgroundColor: theme.colors.surface,
+              },
+            ]}
+          >
+            <View style={styles.dialogTopContent}>
+              <View
+                style={[
+                  styles.dialogHeaderIcon,
+                  {
+                    backgroundColor: softPrimary,
+                  },
+                ]}
+              >
+                <IconButton
+                  icon="comment-outline"
+                  size={25}
+                  iconColor={theme.colors.primary}
+                  style={styles.dialogHeaderIconButton}
+                />
+              </View>
+
+              <Text
+                variant="titleLarge"
+                style={{
+                  color: theme.colors.onSurface,
+                  fontWeight: "900",
+                  textAlign: "center",
+                  letterSpacing: -0.3,
+                }}
+              >
+                Comentarios
+              </Text>
+
+              <Text
+                variant="bodyMedium"
+                style={{
+                  color: theme.colors.onSurfaceVariant,
+                  textAlign: "center",
+                  marginTop: 6,
+                  lineHeight: 20,
+                }}
+              >
+                Leé y respondé la publicación.
+              </Text>
+            </View>
+
+            <Dialog.ScrollArea style={styles.commentsDialogScrollArea}>
+              <ScrollView
+                contentContainerStyle={styles.commentsDialogContent}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="interactive"
+                showsVerticalScrollIndicator={false}
+              >
+                {commentsLoading ? (
+                  <View style={styles.commentsLoadingBox}>
+                    <ActivityIndicator />
+
+                    <Text
+                      variant="bodySmall"
+                      style={{
+                        marginTop: 8,
+                        color: theme.colors.onSurfaceVariant,
+                      }}
+                    >
+                      Cargando comentarios...
+                    </Text>
+                  </View>
+                ) : comments.length === 0 ? (
+                  <View
+                    style={[
+                      styles.noCommentsBox,
+                      {
+                        backgroundColor: mutedSurface,
+                        borderColor: premiumBorder,
+                      },
+                    ]}
+                  >
+                    <Text
+                      variant="titleMedium"
+                      style={{
+                        color: theme.colors.onSurface,
+                        fontWeight: "900",
+                        textAlign: "center",
+                      }}
+                    >
+                      Todavía no hay comentarios
+                    </Text>
+
+                    <Text
+                      variant="bodySmall"
+                      style={{
+                        color: theme.colors.onSurfaceVariant,
+                        textAlign: "center",
+                        marginTop: 6,
+                      }}
+                    >
+                      Sé el primero en comentar.
+                    </Text>
+                  </View>
+                ) : (
+                  comments.map((comment) => (
+                    <View
+                      key={comment.id}
+                      style={[
+                        styles.commentItem,
+                        {
+                          borderColor: premiumBorder,
+                          backgroundColor: mutedSurface,
+                        },
+                      ]}
+                    >
+                      {comment.userPhotoURL ? (
+                        <Avatar.Image
+                          size={36}
+                          source={{ uri: comment.userPhotoURL }}
+                        />
+                      ) : (
+                        <Avatar.Text
+                          size={36}
+                          label={getInitial(comment.userName)}
+                          style={{ backgroundColor: softPrimary }}
+                          color={theme.colors.primary}
+                          labelStyle={{ fontWeight: "900" }}
+                        />
+                      )}
+
+                      <View style={styles.commentTextBox}>
+                        <Text
+                          variant="labelLarge"
+                          style={{
+                            color: theme.colors.onSurface,
+                            fontWeight: "900",
+                          }}
+                        >
+                          {comment.userName || "Usuario Forte"}
+                        </Text>
+
+                        <Text
+                          variant="bodyMedium"
+                          style={{
+                            color: theme.colors.onSurfaceVariant,
+                            marginTop: 2,
+                            lineHeight: 20,
+                          }}
+                        >
+                          {comment.text}
+                        </Text>
+                      </View>
+                    </View>
+                  ))
+                )}
+
+                <TextInput
+                  mode="outlined"
+                  label="Escribí un comentario"
+                  value={commentText}
+                  onChangeText={setCommentText}
+                  multiline
+                  numberOfLines={3}
+                  style={styles.commentInput}
+                  outlineStyle={{ borderRadius: 16 }}
+                />
+              </ScrollView>
+            </Dialog.ScrollArea>
+
+            <View style={styles.dialogActionsCustom}>
+              <Button
+                mode="outlined"
+                disabled={commentPosting}
+                onPress={closeComments}
+                style={[
+                  styles.dialogActionButton,
+                  {
+                    borderColor: premiumBorder,
+                  },
+                ]}
+                contentStyle={styles.dialogActionContent}
+              >
+                Cerrar
+              </Button>
+
+              <Button
+                mode="contained"
+                icon="send"
+                loading={commentPosting}
+                disabled={commentPosting}
+                onPress={handleCreateComment}
+                style={styles.dialogActionButton}
+                contentStyle={styles.dialogActionContent}
+              >
+                Comentar
+              </Button>
+            </View>
+          </Dialog>
+        </KeyboardAvoidingView>
       </Portal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoidingView: {
+    flex: 1,
+    justifyContent: "center",
+  },
+
   container: {
     padding: 20,
-    paddingTop: 62,
-    paddingBottom: 130,
+    paddingTop: 58,
+    paddingBottom: 110,
   },
-  title: {
-    fontWeight: "900",
-  },
-  subtitle: {
-    marginTop: 4,
+
+  header: {
     marginBottom: 18,
   },
+
+  eyebrowPill: {
+    alignSelf: "flex-start",
+    minHeight: 30,
+    paddingRight: 12,
+    paddingLeft: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+
+  eyebrowIcon: {
+    width: 26,
+    height: 26,
+    margin: 0,
+  },
+
+  title: {
+    fontWeight: "900",
+    letterSpacing: -0.7,
+  },
+
+  subtitle: {
+    marginTop: 5,
+    lineHeight: 20,
+  },
+
   createButton: {
     borderRadius: 18,
     marginBottom: 18,
   },
+
   buttonContent: {
     height: 50,
   },
+
   loadingBox: {
     minHeight: 300,
     alignItems: "center",
     justifyContent: "center",
   },
+
   errorCard: {
     borderRadius: 20,
     marginBottom: 14,
   },
+
   emptyCard: {
-    borderRadius: 28,
+    borderRadius: 30,
+    borderWidth: 1,
   },
+
+  emptyContent: {
+    alignItems: "center",
+  },
+
+  emptyIcon: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 18,
+  },
+
+  emptyIconButton: {
+    margin: 0,
+  },
+
   postCard: {
     borderRadius: 28,
     marginBottom: 16,
+    borderWidth: 1,
   },
+
+  postCardContent: {
+    paddingVertical: 16,
+  },
+
   postHeader: {
     flexDirection: "row",
     alignItems: "center",
   },
+
   postUserBox: {
     flex: 1,
     marginLeft: 12,
     marginRight: 10,
   },
+
+  deletePostButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    margin: 0,
+  },
+
+  postTypeBadge: {
+    maxWidth: 126,
+    height: 32,
+    borderRadius: 16,
+    paddingRight: 10,
+    paddingLeft: 2,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  postTypeIcon: {
+    width: 28,
+    height: 28,
+    margin: 0,
+  },
+
   myPostChipRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
     marginTop: 14,
   },
+
   postText: {
     marginTop: 16,
     lineHeight: 24,
   },
+
   postImage: {
     width: "100%",
     height: 260,
@@ -1542,34 +2189,62 @@ const styles = StyleSheet.create({
     marginTop: 16,
     backgroundColor: "#00000010",
   },
+
   weeklyBox: {
     borderRadius: 22,
     padding: 14,
     marginTop: 16,
+    borderWidth: 1,
   },
+
   weeklyTopRow: {
     flexDirection: "row",
     alignItems: "center",
   },
+
   weeklyTextBox: {
     flex: 1,
     marginRight: 12,
   },
+
+  weeklyDonutBox: {
+    width: 82,
+    height: 82,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+
+  weeklyDonutCenter: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 1,
+  },
+
   weeklyProgressBar: {
     height: 9,
     borderRadius: 999,
     marginTop: 14,
     marginBottom: 14,
   },
+
   goalCompletedBox: {
     borderRadius: 22,
     padding: 14,
     marginTop: 16,
+    borderWidth: 1,
   },
+
   goalCompletedHeader: {
     flexDirection: "row",
     alignItems: "center",
   },
+
   goalCompletedIcon: {
     width: 44,
     height: 44,
@@ -1578,33 +2253,54 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 12,
   },
+
+  goalCompletedIconButton: {
+    margin: 0,
+  },
+
   goalCompletedTextBox: {
     flex: 1,
     marginRight: 10,
   },
+
+  completedBadge: {
+    minWidth: 32,
+    height: 28,
+    borderRadius: 14,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
   goalCompletedProgress: {
     height: 9,
     borderRadius: 999,
     marginTop: 14,
     marginBottom: 14,
   },
+
   goalCompletedStats: {
     flexDirection: "row",
     justifyContent: "space-between",
   },
+
   statsBox: {
     borderRadius: 22,
     padding: 14,
     marginTop: 16,
+    borderWidth: 1,
   },
+
   statsRow: {
     flexDirection: "row",
     justifyContent: "space-between",
   },
+
   statItem: {
     flex: 1,
     alignItems: "center",
   },
+
   postActions: {
     borderTopWidth: 1,
     marginTop: 16,
@@ -1613,66 +2309,250 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4,
   },
-  fab: {
-    position: "absolute",
-    right: 20,
-    bottom: 94,
-    borderRadius: 18,
+
+  socialActionButton: {
+    borderRadius: 14,
   },
-  postDialogContent: {
-    paddingHorizontal: 24,
-    paddingTop: 8,
-    paddingBottom: 8,
+
+  commentsPreviewBox: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 12,
+    marginTop: 12,
+    gap: 10,
   },
-  postOptionsRow: {
+
+  previewCommentItem: {
     flexDirection: "row",
-    gap: 8,
+    alignItems: "flex-start",
+  },
+
+  previewCommentTextBox: {
+    flex: 1,
+    marginLeft: 10,
+  },
+
+  moreCommentsButton: {
+    borderRadius: 14,
+    overflow: "hidden",
+    alignSelf: "flex-start",
+  },
+
+  moreCommentsContent: {
+    minHeight: 32,
+    paddingRight: 10,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  moreCommentsIcon: {
+    margin: 0,
+    width: 28,
+    height: 28,
+  },
+
+  premiumDialog: {
+    borderRadius: 30,
+    overflow: "hidden",
+    marginHorizontal: 18,
+  },
+
+  dialogTopContent: {
+    paddingHorizontal: 24,
+    paddingTop: 26,
+    paddingBottom: 14,
+    alignItems: "center",
+  },
+
+  dialogHeaderIcon: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: 14,
   },
-  postOption: {
-    flex: 1,
-    borderRadius: 18,
+
+  dialogHeaderIconButton: {
+    margin: 0,
+  },
+
+  postDialogScrollArea: {
+    paddingHorizontal: 0,
+    maxHeight: 460,
+  },
+
+  postDialogContent: {
+    paddingHorizontal: 24,
+    paddingTop: 10,
+    paddingBottom: 26,
+  },
+
+  postModeGrid: {
+    gap: 10,
+    marginBottom: 14,
+  },
+
+  postModeOption: {
+    borderRadius: 20,
     borderWidth: 1,
     overflow: "hidden",
   },
-  postOptionInner: {
-    minHeight: 76,
+
+  postModeOptionContent: {
+    minHeight: 64,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  postModeIconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    padding: 6,
+    marginRight: 12,
   },
-  optionIcon: {
+
+  postModeIcon: {
     margin: 0,
   },
+
+  postModeTextBox: {
+    flex: 1,
+  },
+
+  modeSelectedBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
+  },
+
+  modeSelectedIcon: {
+    margin: 0,
+  },
+
+  previewImageBox: {
+    borderRadius: 22,
+    borderWidth: 1,
+    padding: 10,
+    marginBottom: 14,
+  },
+
   previewImage: {
     width: "100%",
     height: 210,
-    borderRadius: 20,
-    marginBottom: 14,
+    borderRadius: 18,
     backgroundColor: "#00000010",
   },
+
+  removeImageButton: {
+    borderRadius: 14,
+    marginTop: 10,
+    alignSelf: "flex-start",
+  },
+
+  dialogActionsCustom: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 24,
+  },
+
+  dialogActionButton: {
+    flex: 1,
+    borderRadius: 16,
+  },
+
+  dialogActionContent: {
+    height: 48,
+  },
+
+  deleteDialogContent: {
+    paddingHorizontal: 24,
+    paddingTop: 28,
+    paddingBottom: 24,
+    alignItems: "center",
+  },
+
+  deleteIconBox: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 18,
+  },
+
+  deleteIcon: {
+    margin: 0,
+  },
+
+  deletePreview: {
+    width: "100%",
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 16,
+    marginTop: 18,
+    alignItems: "center",
+  },
+
+  deleteActions: {
+    flexDirection: "row",
+    width: "100%",
+    gap: 10,
+    marginTop: 22,
+  },
+
+  deleteActionButton: {
+    flex: 1,
+    borderRadius: 16,
+  },
+
+  commentsDialogScrollArea: {
+    paddingHorizontal: 0,
+    maxHeight: 430,
+  },
+
   commentsDialogContent: {
     paddingHorizontal: 24,
-    paddingTop: 8,
-    paddingBottom: 8,
+    paddingTop: 10,
+    paddingBottom: 26,
   },
+
   commentsLoadingBox: {
     paddingVertical: 24,
     alignItems: "center",
   },
+
   noCommentsBox: {
-    paddingVertical: 24,
+    padding: 18,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginBottom: 14,
   },
+
   commentItem: {
-    borderTopWidth: 1,
-    paddingVertical: 12,
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 12,
     flexDirection: "row",
+    marginBottom: 10,
   },
+
   commentTextBox: {
     flex: 1,
     marginLeft: 10,
   },
+
   commentInput: {
-    marginTop: 14,
+    marginTop: 6,
   },
 });

@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  KeyboardAvoidingView,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -12,6 +14,7 @@ import {
   Card,
   Chip,
   Dialog,
+  IconButton,
   Portal,
   ProgressBar,
   Text,
@@ -115,6 +118,34 @@ export default function RecordScreen() {
 
   const weeklyGoalDays = Math.max(1, trainingDaysCount);
 
+  const softPrimary =
+    theme.custom?.softPrimary ||
+    (theme.dark ? "rgba(37, 99, 235, 0.18)" : "rgba(37, 99, 235, 0.1)");
+
+  const premiumSurface = theme.dark
+    ? "rgba(255,255,255,0.045)"
+    : "rgba(255,255,255,0.92)";
+
+  const premiumBorder = theme.dark
+    ? "rgba(255,255,255,0.09)"
+    : "rgba(15,23,42,0.08)";
+
+  const mutedSurface = theme.dark
+    ? "rgba(255,255,255,0.055)"
+    : "rgba(15,23,42,0.035)";
+
+  const successSoft = theme.dark
+    ? "rgba(34,197,94,0.13)"
+    : "rgba(22,163,74,0.08)";
+
+  const successColor = theme.dark ? "#86EFAC" : "#15803D";
+
+  const dangerSoft = theme.dark
+    ? "rgba(248,113,113,0.12)"
+    : "rgba(220,38,38,0.07)";
+
+  const dangerColor = theme.dark ? "#FCA5A5" : "#B91C1C";
+
   const stats = useMemo(() => {
     return buildRecordStats({
       sessions,
@@ -141,6 +172,7 @@ export default function RecordScreen() {
       ]);
 
       setSessions(Array.isArray(sessionsResponse) ? sessionsResponse : []);
+
       setTrainingDaysCount(
         Math.max(
           1,
@@ -169,40 +201,6 @@ export default function RecordScreen() {
       userName: userProfile?.name || user?.displayName || "Usuario Forte",
       userPhotoURL: userProfile?.photoURL || user?.photoURL || null,
     };
-  };
-
-  const getDefaultWeeklyText = () => {
-    const weeklyTrainedDays = Number(stats.weeklyTrainedDays) || 0;
-    const weeklyGoalDaysValue = Number(stats.weeklyGoalDays) || weeklyGoalDays;
-    const weeklyVolume = Number(stats.weeklyVolume) || 0;
-    const weeklyCompletedExercises =
-      Number(stats.weeklyCompletedExercises) || 0;
-
-    if (weeklyTrainedDays >= weeklyGoalDaysValue) {
-      return `Cumplí mi rutina semanal: ${weeklyTrainedDays}/${weeklyGoalDaysValue} entrenamientos, ${formatNumber(
-        weeklyVolume
-      )} kg de volumen y ${weeklyCompletedExercises} ejercicios completados. 💪`;
-    }
-
-    return `Esta semana voy ${weeklyTrainedDays}/${weeklyGoalDaysValue} entrenamientos, ${formatNumber(
-      weeklyVolume
-    )} kg de volumen y ${weeklyCompletedExercises} ejercicios completados. 💪`;
-  };
-
-  const getDefaultExerciseText = (exercise) => {
-    const progressWeight = Number(exercise?.progressWeight) || 0;
-    const bestWeight = Number(exercise?.bestWeight) || 0;
-    const lastWeight = Number(exercise?.lastWeight) || 0;
-
-    if (progressWeight > 0) {
-      return `Mejoré ${progressWeight} kg en ${exercise.name}. Mi mejor marca ahora es ${bestWeight} kg 💪`;
-    }
-
-    if (progressWeight < 0) {
-      return `Estoy siguiendo mi evolución en ${exercise.name}. Última marca: ${lastWeight} kg 💪`;
-    }
-
-    return `Me mantengo constante en ${exercise.name}. Última marca: ${lastWeight} kg 💪`;
   };
 
   const openWeeklyShareDialog = () => {
@@ -258,20 +256,24 @@ export default function RecordScreen() {
         return;
       }
 
+      if (!shareComment.trim()) {
+        Alert.alert(
+          "Comentario vacío",
+          "Escribí un comentario para compartir tu progreso."
+        );
+        return;
+      }
+
       const { userName, userPhotoURL } = getUserPostData();
 
       setSharing(true);
 
       if (shareType === "weekly") {
-        const finalText = shareComment.trim()
-          ? shareComment.trim()
-          : getDefaultWeeklyText();
-
         await createProgressPost({
           uid: user.uid,
           userName,
           userPhotoURL,
-          text: finalText,
+          text: shareComment.trim(),
           stats: {
             weeklyGoalDays: Number(stats.weeklyGoalDays) || weeklyGoalDays,
             weeklyTrainedDays: Number(stats.weeklyTrainedDays) || 0,
@@ -299,16 +301,12 @@ export default function RecordScreen() {
 
         setSharingExerciseId(shareExercise.key);
 
-        const finalText = shareComment.trim()
-          ? shareComment.trim()
-          : getDefaultExerciseText(shareExercise);
-
         await createExerciseProgressPost({
           uid: user.uid,
           userName,
           userPhotoURL,
           exercise: shareExercise,
-          text: finalText,
+          text: shareComment.trim(),
         });
 
         Alert.alert(
@@ -317,7 +315,10 @@ export default function RecordScreen() {
         );
       }
 
-      closeShareDialog();
+      setShareDialogVisible(false);
+      setShareType(null);
+      setShareExercise(null);
+      setShareComment("");
     } catch (err) {
       Alert.alert(
         "Error",
@@ -338,47 +339,75 @@ export default function RecordScreen() {
       return `Compartir ${shareExercise?.name || "ejercicio"}`;
     }
 
-    return "Compartir";
+    return "Compartir progreso";
   };
 
-  const getSharePreviewText = () => {
-    if (shareComment.trim()) {
-      return shareComment.trim();
-    }
-
+  const getShareDialogDescription = () => {
     if (shareType === "weekly") {
-      return getDefaultWeeklyText();
+      return "Escribí un mensaje para publicar tu resumen semanal en Social.";
     }
 
-    if (shareType === "exercise" && shareExercise) {
-      return getDefaultExerciseText(shareExercise);
+    if (shareType === "exercise") {
+      return "Escribí un mensaje para publicar tu evolución en este ejercicio.";
     }
 
-    return "";
+    return "Escribí un mensaje para acompañar tu publicación.";
   };
 
   return (
-    <>
+    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <ScrollView
         style={{ backgroundColor: theme.colors.background }}
         contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
       >
-        <Text
-          variant="headlineMedium"
-          style={[styles.title, { color: theme.colors.onBackground }]}
-        >
-          Registro
-        </Text>
+        <View style={styles.header}>
+          <View
+            style={[
+              styles.eyebrowPill,
+              {
+                backgroundColor: softPrimary,
+                borderColor: premiumBorder,
+              },
+            ]}
+          >
+            <IconButton
+              icon="chart-line"
+              size={15}
+              iconColor={theme.colors.primary}
+              style={styles.eyebrowIcon}
+            />
 
-        <Text
-          variant="bodyMedium"
-          style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]}
-        >
-          Historial, asistencia y evolución de tus entrenamientos.
-        </Text>
+            <Text
+              variant="labelSmall"
+              style={{
+                color: theme.colors.primary,
+                fontWeight: "900",
+                letterSpacing: 0.7,
+              }}
+            >
+              FORTE RECORD
+            </Text>
+          </View>
+
+          <Text
+            variant="headlineMedium"
+            style={[styles.title, { color: theme.colors.onBackground }]}
+          >
+            Registro
+          </Text>
+
+          <Text
+            variant="bodyMedium"
+            style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]}
+          >
+            Historial, asistencia y evolución de tus entrenamientos.
+          </Text>
+        </View>
 
         {loading ? (
           <View style={styles.loadingBox}>
@@ -414,16 +443,39 @@ export default function RecordScreen() {
 
             <Card
               mode="contained"
-              style={[styles.card, { backgroundColor: theme.colors.surface }]}
+              style={[
+                styles.card,
+                {
+                  backgroundColor: premiumSurface,
+                  borderColor: premiumBorder,
+                },
+              ]}
             >
-              <Card.Content>
+              <Card.Content style={styles.cardContent}>
                 <View style={styles.weekTop}>
                   <View style={styles.weekTextBox}>
+                    <View
+                      style={[
+                        styles.cardIconBox,
+                        {
+                          backgroundColor: softPrimary,
+                        },
+                      ]}
+                    >
+                      <IconButton
+                        icon="calendar-check"
+                        size={20}
+                        iconColor={theme.colors.primary}
+                        style={styles.cardIcon}
+                      />
+                    </View>
+
                     <Text
                       variant="titleLarge"
                       style={{
                         color: theme.colors.onSurface,
                         fontWeight: "900",
+                        letterSpacing: -0.3,
                       }}
                     >
                       Rutina semanal
@@ -456,7 +508,11 @@ export default function RecordScreen() {
                   color={theme.colors.primary}
                   style={[
                     styles.progressBar,
-                    { backgroundColor: theme.colors.surfaceVariant },
+                    {
+                      backgroundColor: theme.dark
+                        ? "rgba(255,255,255,0.08)"
+                        : "rgba(15,23,42,0.08)",
+                    },
                   ]}
                 />
 
@@ -479,10 +535,10 @@ export default function RecordScreen() {
                           {
                             backgroundColor: day.trained
                               ? theme.colors.primary
-                              : theme.colors.surfaceVariant,
+                              : mutedSurface,
                             borderColor: day.trained
                               ? theme.colors.primary
-                              : theme.colors.outline,
+                              : premiumBorder,
                           },
                         ]}
                       />
@@ -490,26 +546,35 @@ export default function RecordScreen() {
                   ))}
                 </View>
 
-                <Text
-                  variant="bodyMedium"
-                  style={{
-                    color: theme.colors.onSurfaceVariant,
-                    marginTop: 16,
-                    lineHeight: 21,
-                  }}
+                <View
+                  style={[
+                    styles.weekMessageBox,
+                    {
+                      backgroundColor: mutedSurface,
+                      borderColor: premiumBorder,
+                    },
+                  ]}
                 >
-                  {stats.weeklyMessage}
-                </Text>
+                  <Text
+                    variant="bodyMedium"
+                    style={{
+                      color: theme.colors.onSurfaceVariant,
+                      lineHeight: 21,
+                    }}
+                  >
+                    {stats.weeklyMessage}
+                  </Text>
+                </View>
 
                 <Button
-                  mode="contained-tonal"
+                  mode="contained"
                   icon="share-variant-outline"
                   loading={sharing && shareType === "weekly"}
                   disabled={
                     sharing || (Number(stats.weeklyTrainedDays) || 0) <= 0
                   }
                   style={styles.shareButton}
-                  contentStyle={styles.buttonContent}
+                  contentStyle={styles.shareButtonContent}
                   onPress={openWeeklyShareDialog}
                 >
                   Compartir progreso
@@ -519,35 +584,64 @@ export default function RecordScreen() {
 
             <Card
               mode="contained"
-              style={[styles.card, { backgroundColor: theme.colors.surface }]}
+              style={[
+                styles.card,
+                {
+                  backgroundColor: premiumSurface,
+                  borderColor: premiumBorder,
+                },
+              ]}
             >
-              <Card.Content>
-                <Text
-                  variant="titleLarge"
-                  style={{
-                    color: theme.colors.onSurface,
-                    fontWeight: "900",
-                    marginBottom: 4,
-                  }}
-                >
-                  Comparación semanal
-                </Text>
+              <Card.Content style={styles.cardContent}>
+                <View style={styles.sectionTitleRow}>
+                  <View style={styles.sectionTextBox}>
+                    <Text
+                      variant="titleLarge"
+                      style={{
+                        color: theme.colors.onSurface,
+                        fontWeight: "900",
+                        letterSpacing: -0.3,
+                      }}
+                    >
+                      Comparación semanal
+                    </Text>
 
-                <Text
-                  variant="bodyMedium"
-                  style={{
-                    color: theme.colors.onSurfaceVariant,
-                    marginBottom: 16,
-                  }}
-                >
-                  Esta semana contra la semana anterior.
-                </Text>
+                    <Text
+                      variant="bodyMedium"
+                      style={{
+                        color: theme.colors.onSurfaceVariant,
+                        marginTop: 4,
+                      }}
+                    >
+                      Esta semana contra la semana anterior.
+                    </Text>
+                  </View>
+
+                  <View
+                    style={[
+                      styles.sectionIconBox,
+                      {
+                        backgroundColor: softPrimary,
+                      },
+                    ]}
+                  >
+                    <IconButton
+                      icon="compare-horizontal"
+                      size={19}
+                      iconColor={theme.colors.primary}
+                      style={styles.sectionIcon}
+                    />
+                  </View>
+                </View>
 
                 <View style={styles.comparisonGrid}>
                   <View
                     style={[
                       styles.comparisonItem,
-                      { backgroundColor: theme.colors.surfaceVariant },
+                      {
+                        backgroundColor: mutedSurface,
+                        borderColor: premiumBorder,
+                      },
                     ]}
                   >
                     <Text
@@ -562,8 +656,8 @@ export default function RecordScreen() {
                       style={{
                         color:
                           stats.comparison.workoutsDiff >= 0
-                            ? theme.custom.success
-                            : theme.colors.error,
+                            ? successColor
+                            : dangerColor,
                         fontWeight: "900",
                       }}
                     >
@@ -574,7 +668,10 @@ export default function RecordScreen() {
                   <View
                     style={[
                       styles.comparisonItem,
-                      { backgroundColor: theme.colors.surfaceVariant },
+                      {
+                        backgroundColor: mutedSurface,
+                        borderColor: premiumBorder,
+                      },
                     ]}
                   >
                     <Text
@@ -589,8 +686,8 @@ export default function RecordScreen() {
                       style={{
                         color:
                           stats.comparison.volumeDiff >= 0
-                            ? theme.custom.success
-                            : theme.colors.error,
+                            ? successColor
+                            : dangerColor,
                         fontWeight: "900",
                       }}
                     >
@@ -604,7 +701,10 @@ export default function RecordScreen() {
                   <View
                     style={[
                       styles.comparisonItem,
-                      { backgroundColor: theme.colors.surfaceVariant },
+                      {
+                        backgroundColor: mutedSurface,
+                        borderColor: premiumBorder,
+                      },
                     ]}
                   >
                     <Text
@@ -619,8 +719,8 @@ export default function RecordScreen() {
                       style={{
                         color:
                           stats.comparison.exercisesDiff >= 0
-                            ? theme.custom.success
-                            : theme.colors.error,
+                            ? successColor
+                            : dangerColor,
                         fontWeight: "900",
                       }}
                     >
@@ -635,29 +735,56 @@ export default function RecordScreen() {
 
             <Card
               mode="contained"
-              style={[styles.card, { backgroundColor: theme.colors.surface }]}
+              style={[
+                styles.card,
+                {
+                  backgroundColor: premiumSurface,
+                  borderColor: premiumBorder,
+                },
+              ]}
             >
-              <Card.Content>
-                <Text
-                  variant="titleLarge"
-                  style={{
-                    color: theme.colors.onSurface,
-                    fontWeight: "900",
-                    marginBottom: 4,
-                  }}
-                >
-                  Volumen por día
-                </Text>
+              <Card.Content style={styles.cardContent}>
+                <View style={styles.sectionTitleRow}>
+                  <View style={styles.sectionTextBox}>
+                    <Text
+                      variant="titleLarge"
+                      style={{
+                        color: theme.colors.onSurface,
+                        fontWeight: "900",
+                        letterSpacing: -0.3,
+                      }}
+                    >
+                      Volumen por día
+                    </Text>
 
-                <Text
-                  variant="bodyMedium"
-                  style={{
-                    color: theme.colors.onSurfaceVariant,
-                    marginBottom: 16,
-                  }}
-                >
-                  Visualizá qué días moviste más carga esta semana.
-                </Text>
+                    <Text
+                      variant="bodyMedium"
+                      style={{
+                        color: theme.colors.onSurfaceVariant,
+                        marginTop: 4,
+                        lineHeight: 21,
+                      }}
+                    >
+                      Visualizá qué días moviste más carga esta semana.
+                    </Text>
+                  </View>
+
+                  <View
+                    style={[
+                      styles.sectionIconBox,
+                      {
+                        backgroundColor: softPrimary,
+                      },
+                    ]}
+                  >
+                    <IconButton
+                      icon="chart-bar"
+                      size={19}
+                      iconColor={theme.colors.primary}
+                      style={styles.sectionIcon}
+                    />
+                  </View>
+                </View>
 
                 <WeeklyBars
                   data={stats.weekMap || []}
@@ -670,34 +797,68 @@ export default function RecordScreen() {
 
             <Card
               mode="contained"
-              style={[styles.card, { backgroundColor: theme.colors.surface }]}
+              style={[
+                styles.card,
+                {
+                  backgroundColor: premiumSurface,
+                  borderColor: premiumBorder,
+                },
+              ]}
             >
-              <Card.Content>
-                <Text
-                  variant="titleLarge"
-                  style={{
-                    color: theme.colors.onSurface,
-                    fontWeight: "900",
-                    marginBottom: 4,
-                  }}
-                >
-                  Progreso por ejercicio
-                </Text>
+              <Card.Content style={styles.cardContent}>
+                <View style={styles.sectionTitleRow}>
+                  <View style={styles.sectionTextBox}>
+                    <Text
+                      variant="titleLarge"
+                      style={{
+                        color: theme.colors.onSurface,
+                        fontWeight: "900",
+                        letterSpacing: -0.3,
+                      }}
+                    >
+                      Progreso por ejercicio
+                    </Text>
 
-                <Text
-                  variant="bodyMedium"
-                  style={{
-                    color: theme.colors.onSurfaceVariant,
-                    marginBottom: 16,
-                    lineHeight: 21,
-                  }}
-                >
-                  Compará tu primera marca registrada con la última y detectá
-                  qué ejercicios vienen mejorando.
-                </Text>
+                    <Text
+                      variant="bodyMedium"
+                      style={{
+                        color: theme.colors.onSurfaceVariant,
+                        marginTop: 4,
+                        lineHeight: 21,
+                      }}
+                    >
+                      Compará tu primera marca con la última y compartí tus
+                      mejores avances.
+                    </Text>
+                  </View>
+
+                  <View
+                    style={[
+                      styles.sectionIconBox,
+                      {
+                        backgroundColor: softPrimary,
+                      },
+                    ]}
+                  >
+                    <IconButton
+                      icon="dumbbell"
+                      size={19}
+                      iconColor={theme.colors.primary}
+                      style={styles.sectionIcon}
+                    />
+                  </View>
+                </View>
 
                 {topExerciseProgress.length === 0 ? (
-                  <View style={styles.emptyBox}>
+                  <View
+                    style={[
+                      styles.emptyBox,
+                      {
+                        backgroundColor: mutedSurface,
+                        borderColor: premiumBorder,
+                      },
+                    ]}
+                  >
                     <Text
                       variant="titleMedium"
                       style={{
@@ -727,22 +888,69 @@ export default function RecordScreen() {
                     const isImproved = exercise.progressWeight > 0;
                     const isDown = exercise.progressWeight < 0;
 
+                    const statusColor = isDown
+                      ? dangerColor
+                      : isImproved
+                      ? successColor
+                      : theme.colors.onSurfaceVariant;
+
+                    const statusBackground = isDown
+                      ? dangerSoft
+                      : isImproved
+                      ? successSoft
+                      : theme.dark
+                      ? "rgba(255,255,255,0.07)"
+                      : "rgba(15,23,42,0.05)";
+
                     return (
                       <View
                         key={exercise.key}
                         style={[
                           styles.exerciseProgressItem,
-                          { borderColor: theme.colors.outlineVariant },
+                          {
+                            borderColor: premiumBorder,
+                            backgroundColor: premiumSurface,
+                          },
                         ]}
                       >
+                        <View
+                          style={[
+                            styles.exerciseAccentLine,
+                            {
+                              backgroundColor: isDown
+                                ? dangerColor
+                                : isImproved
+                                ? successColor
+                                : theme.colors.primary,
+                            },
+                          ]}
+                        />
+
                         <View style={styles.exerciseProgressHeader}>
+                          <View
+                            style={[
+                              styles.exerciseIconBox,
+                              {
+                                backgroundColor: softPrimary,
+                              },
+                            ]}
+                          >
+                            <IconButton
+                              icon="dumbbell"
+                              size={18}
+                              iconColor={theme.colors.primary}
+                              style={styles.exerciseIcon}
+                            />
+                          </View>
+
                           <View style={styles.exerciseProgressTitleBox}>
                             <Text
                               variant="titleMedium"
-                              numberOfLines={1}
+                              numberOfLines={2}
                               style={{
                                 color: theme.colors.onSurface,
                                 fontWeight: "900",
+                                lineHeight: 22,
                               }}
                             >
                               {exercise.name}
@@ -753,28 +961,25 @@ export default function RecordScreen() {
                               style={{
                                 color: theme.colors.onSurfaceVariant,
                                 marginTop: 3,
+                                lineHeight: 18,
                               }}
                             >
                               {exercise.completedCount} registros ·{" "}
-                              {formatNumber(exercise.totalVolume)} kg
-                              acumulados
+                              {formatNumber(exercise.totalVolume)} kg acumulados
                             </Text>
                           </View>
 
                           <Chip
                             compact
-                            style={{
-                              backgroundColor: isImproved
-                                ? theme.custom.softPrimary
-                                : theme.colors.surfaceVariant,
-                            }}
+                            style={[
+                              styles.exerciseChip,
+                              {
+                                backgroundColor: statusBackground,
+                              },
+                            ]}
                             textStyle={{
-                              color: isDown
-                                ? theme.colors.error
-                                : isImproved
-                                ? theme.colors.primary
-                                : theme.colors.onSurfaceVariant,
-                              fontWeight: "800",
+                              color: statusColor,
+                              fontWeight: "900",
                             }}
                           >
                             {getExerciseStatusLabel(exercise)}
@@ -785,7 +990,10 @@ export default function RecordScreen() {
                           <View
                             style={[
                               styles.exerciseMetric,
-                              { backgroundColor: theme.colors.surfaceVariant },
+                              {
+                                backgroundColor: mutedSurface,
+                                borderColor: premiumBorder,
+                              },
                             ]}
                           >
                             <Text
@@ -809,7 +1017,10 @@ export default function RecordScreen() {
                           <View
                             style={[
                               styles.exerciseMetric,
-                              { backgroundColor: theme.colors.surfaceVariant },
+                              {
+                                backgroundColor: mutedSurface,
+                                borderColor: premiumBorder,
+                              },
                             ]}
                           >
                             <Text
@@ -833,7 +1044,10 @@ export default function RecordScreen() {
                           <View
                             style={[
                               styles.exerciseMetric,
-                              { backgroundColor: theme.colors.surfaceVariant },
+                              {
+                                backgroundColor: softPrimary,
+                                borderColor: theme.colors.primary,
+                              },
                             ]}
                           >
                             <Text
@@ -855,33 +1069,80 @@ export default function RecordScreen() {
                           </View>
                         </View>
 
-                        <View style={styles.exerciseProgressFooter}>
-                          <Text
-                            variant="bodyMedium"
-                            style={{
-                              color: isDown
-                                ? theme.colors.error
-                                : isImproved
-                                ? theme.custom.success
-                                : theme.colors.onSurfaceVariant,
-                              fontWeight: "800",
-                            }}
-                          >
-                            {formatDiff({
-                              value: exercise.progressWeight,
-                              suffix: "kg",
-                            })}
-                          </Text>
+                        <View
+                          style={[
+                            styles.exerciseResultBox,
+                            {
+                              backgroundColor: mutedSurface,
+                              borderColor: premiumBorder,
+                            },
+                          ]}
+                        >
+                          <View style={styles.exerciseResultTop}>
+                            <View>
+                              <Text
+                                variant="labelSmall"
+                                style={{
+                                  color: theme.colors.onSurfaceVariant,
+                                  fontWeight: "900",
+                                  letterSpacing: 0.5,
+                                }}
+                              >
+                                EVOLUCIÓN
+                              </Text>
+
+                              <Text
+                                variant="headlineSmall"
+                                style={{
+                                  color: statusColor,
+                                  fontWeight: "900",
+                                  marginTop: 1,
+                                  letterSpacing: -0.4,
+                                }}
+                              >
+                                {formatDiff({
+                                  value: exercise.progressWeight,
+                                  suffix: "kg",
+                                })}
+                              </Text>
+                            </View>
+
+                            <View
+                              style={[
+                                styles.exerciseResultBadge,
+                                {
+                                  backgroundColor: statusBackground,
+                                },
+                              ]}
+                            >
+                              <IconButton
+                                icon={
+                                  isDown
+                                    ? "trending-down"
+                                    : isImproved
+                                    ? "trending-up"
+                                    : "minus"
+                                }
+                                size={18}
+                                iconColor={statusColor}
+                                style={styles.exerciseResultIcon}
+                              />
+                            </View>
+                          </View>
 
                           <Button
-                            mode="text"
-                            compact
+                            mode="contained"
                             icon="share-variant-outline"
                             loading={sharingExerciseId === exercise.key}
                             disabled={!!sharingExerciseId || sharing}
+                            buttonColor={theme.colors.primary}
+                            textColor={theme.colors.onPrimary}
+                            style={styles.exerciseShareButton}
+                            contentStyle={styles.exerciseShareButtonContent}
+                            labelStyle={styles.exerciseShareButtonLabel}
                             onPress={() => openExerciseShareDialog(exercise)}
                           >
-                            Compartir
+                            Compartir progreso
                           </Button>
                         </View>
                       </View>
@@ -896,7 +1157,10 @@ export default function RecordScreen() {
                 mode="contained"
                 style={[
                   styles.statCard,
-                  { backgroundColor: theme.colors.surface },
+                  {
+                    backgroundColor: premiumSurface,
+                    borderColor: premiumBorder,
+                  },
                 ]}
               >
                 <Card.Content>
@@ -917,7 +1181,10 @@ export default function RecordScreen() {
                 mode="contained"
                 style={[
                   styles.statCard,
-                  { backgroundColor: theme.colors.surface },
+                  {
+                    backgroundColor: premiumSurface,
+                    borderColor: premiumBorder,
+                  },
                 ]}
               >
                 <Card.Content>
@@ -940,7 +1207,10 @@ export default function RecordScreen() {
                 mode="contained"
                 style={[
                   styles.statCard,
-                  { backgroundColor: theme.colors.surface },
+                  {
+                    backgroundColor: premiumSurface,
+                    borderColor: premiumBorder,
+                  },
                 ]}
               >
                 <Card.Content>
@@ -961,7 +1231,10 @@ export default function RecordScreen() {
                 mode="contained"
                 style={[
                   styles.statCard,
-                  { backgroundColor: theme.colors.surface },
+                  {
+                    backgroundColor: premiumSurface,
+                    borderColor: premiumBorder,
+                  },
                 ]}
               >
                 <Card.Content>
@@ -981,22 +1254,66 @@ export default function RecordScreen() {
 
             <Card
               mode="contained"
-              style={[styles.card, { backgroundColor: theme.colors.surface }]}
+              style={[
+                styles.card,
+                {
+                  backgroundColor: premiumSurface,
+                  borderColor: premiumBorder,
+                },
+              ]}
             >
-              <Card.Content>
-                <Text
-                  variant="titleLarge"
-                  style={{
-                    color: theme.colors.onSurface,
-                    fontWeight: "900",
-                    marginBottom: 14,
-                  }}
-                >
-                  Historial
-                </Text>
+              <Card.Content style={styles.cardContent}>
+                <View style={styles.sectionTitleRow}>
+                  <View style={styles.sectionTextBox}>
+                    <Text
+                      variant="titleLarge"
+                      style={{
+                        color: theme.colors.onSurface,
+                        fontWeight: "900",
+                        letterSpacing: -0.3,
+                      }}
+                    >
+                      Historial
+                    </Text>
+
+                    <Text
+                      variant="bodyMedium"
+                      style={{
+                        color: theme.colors.onSurfaceVariant,
+                        marginTop: 4,
+                      }}
+                    >
+                      Últimos entrenamientos finalizados.
+                    </Text>
+                  </View>
+
+                  <View
+                    style={[
+                      styles.sectionIconBox,
+                      {
+                        backgroundColor: softPrimary,
+                      },
+                    ]}
+                  >
+                    <IconButton
+                      icon="history"
+                      size={19}
+                      iconColor={theme.colors.primary}
+                      style={styles.sectionIcon}
+                    />
+                  </View>
+                </View>
 
                 {(stats.parsedSessions || []).length === 0 ? (
-                  <View style={styles.emptyBox}>
+                  <View
+                    style={[
+                      styles.emptyBox,
+                      {
+                        backgroundColor: mutedSurface,
+                        borderColor: premiumBorder,
+                      },
+                    ]}
+                  >
                     <Text
                       variant="titleMedium"
                       style={{
@@ -1027,17 +1344,21 @@ export default function RecordScreen() {
                       key={session.id}
                       style={[
                         styles.sessionItem,
-                        { borderColor: theme.colors.outlineVariant },
+                        {
+                          borderColor: premiumBorder,
+                          backgroundColor: mutedSurface,
+                        },
                       ]}
                     >
                       <View style={styles.sessionTopRow}>
                         <View style={styles.sessionInfo}>
                           <Text
                             variant="titleMedium"
-                            numberOfLines={1}
+                            numberOfLines={2}
                             style={{
                               color: theme.colors.onSurface,
                               fontWeight: "900",
+                              lineHeight: 22,
                             }}
                           >
                             {session.dayName || "Entrenamiento"}
@@ -1091,137 +1412,258 @@ export default function RecordScreen() {
       </ScrollView>
 
       <Portal>
-        <Dialog
-          visible={shareDialogVisible}
-          onDismiss={closeShareDialog}
-          style={{ backgroundColor: theme.colors.surface }}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
+          pointerEvents="box-none"
+          style={styles.keyboardAvoidingView}
         >
-          <Dialog.Title>{getShareDialogTitle()}</Dialog.Title>
+          <Dialog
+            visible={shareDialogVisible}
+            onDismiss={closeShareDialog}
+            style={[
+              styles.premiumDialog,
+              {
+                backgroundColor: theme.colors.surface,
+              },
+            ]}
+          >
+            <View style={styles.dialogTopContent}>
+              <View
+                style={[
+                  styles.dialogHeaderIcon,
+                  {
+                    backgroundColor: softPrimary,
+                  },
+                ]}
+              >
+                {sharing ? (
+                  <ActivityIndicator size={24} color={theme.colors.primary} />
+                ) : (
+                  <IconButton
+                    icon="share-variant-outline"
+                    size={25}
+                    iconColor={theme.colors.primary}
+                    style={styles.dialogHeaderIconButton}
+                  />
+                )}
+              </View>
 
-          <Dialog.ScrollArea>
-            <ScrollView
-              contentContainerStyle={styles.shareDialogContent}
-              keyboardShouldPersistTaps="handled"
-            >
+              <Text
+                variant="titleLarge"
+                style={{
+                  color: theme.colors.onSurface,
+                  fontWeight: "900",
+                  textAlign: "center",
+                  letterSpacing: -0.3,
+                }}
+              >
+                {getShareDialogTitle()}
+              </Text>
+
               <Text
                 variant="bodyMedium"
                 style={{
                   color: theme.colors.onSurfaceVariant,
-                  marginBottom: 12,
-                  lineHeight: 21,
+                  textAlign: "center",
+                  marginTop: 6,
+                  lineHeight: 20,
                 }}
               >
-                Escribí un comentario para acompañar la publicación. Si lo dejás
-                vacío, usamos un resumen automático.
+                {getShareDialogDescription()}
               </Text>
+            </View>
 
+            <ScrollView
+              contentContainerStyle={styles.shareDialogContent}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
+              showsVerticalScrollIndicator={false}
+            >
               <TextInput
                 mode="outlined"
                 label="Comentario"
                 value={shareComment}
                 onChangeText={setShareComment}
                 multiline
-                numberOfLines={4}
-                placeholder="Ej: Buena semana, cada vez más constante 💪"
+                numberOfLines={5}
+                placeholder={
+                  shareType === "weekly"
+                    ? "Ej: Buena semana, cada vez más constante 💪"
+                    : "Ej: Hoy pude mejorar mi marca y seguir progresando 💪"
+                }
+                outlineStyle={{ borderRadius: 16 }}
               />
 
               <View
                 style={[
-                  styles.previewBox,
-                  { backgroundColor: theme.colors.surfaceVariant },
+                  styles.shareHintBox,
+                  {
+                    backgroundColor: mutedSurface,
+                    borderColor: premiumBorder,
+                  },
                 ]}
               >
-                <Text
-                  variant="labelLarge"
-                  style={{
-                    color: theme.colors.onSurface,
-                    fontWeight: "900",
-                    marginBottom: 6,
-                  }}
-                >
-                  Vista previa
-                </Text>
+                <IconButton
+                  icon="information-outline"
+                  size={18}
+                  iconColor={theme.colors.primary}
+                  style={styles.shareHintIcon}
+                />
 
                 <Text
-                  variant="bodyMedium"
+                  variant="bodySmall"
                   style={{
                     color: theme.colors.onSurfaceVariant,
-                    lineHeight: 21,
+                    flex: 1,
+                    lineHeight: 18,
                   }}
                 >
-                  {getSharePreviewText()}
+                  Este texto se publicará junto con tus datos de progreso en la
+                  sección Social.
                 </Text>
               </View>
             </ScrollView>
-          </Dialog.ScrollArea>
 
-          <Dialog.Actions>
-            <Button disabled={sharing} onPress={closeShareDialog}>
-              Cancelar
-            </Button>
+            <View style={styles.dialogActionsCustom}>
+              <Button
+                mode="outlined"
+                disabled={sharing}
+                onPress={closeShareDialog}
+                style={[
+                  styles.dialogActionButton,
+                  {
+                    borderColor: premiumBorder,
+                  },
+                ]}
+                contentStyle={styles.dialogActionContent}
+              >
+                Cancelar
+              </Button>
 
-            <Button
-              mode="contained"
-              loading={sharing}
-              disabled={sharing}
-              onPress={handleConfirmShare}
-            >
-              Publicar
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
+              <Button
+                mode="contained"
+                icon="send"
+                loading={sharing}
+                disabled={sharing}
+                onPress={handleConfirmShare}
+                style={styles.dialogActionButton}
+                contentStyle={styles.dialogActionContent}
+              >
+                Publicar
+              </Button>
+            </View>
+          </Dialog>
+        </KeyboardAvoidingView>
       </Portal>
-    </>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoidingView: {
+    flex: 1,
+    justifyContent: "center",
+  },
+
   container: {
     padding: 20,
-    paddingTop: 62,
-    paddingBottom: 110,
+    paddingTop: 58,
+    paddingBottom: 130,
   },
-  title: {
-    fontWeight: "900",
-  },
-  subtitle: {
-    marginTop: 4,
+
+  header: {
     marginBottom: 20,
   },
+
+  eyebrowPill: {
+    alignSelf: "flex-start",
+    minHeight: 30,
+    paddingRight: 12,
+    paddingLeft: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+
+  eyebrowIcon: {
+    width: 26,
+    height: 26,
+    margin: 0,
+  },
+
+  title: {
+    fontWeight: "900",
+    letterSpacing: -0.7,
+  },
+
+  subtitle: {
+    marginTop: 5,
+    lineHeight: 20,
+  },
+
   loadingBox: {
     minHeight: 300,
     alignItems: "center",
     justifyContent: "center",
   },
+
   errorCard: {
     borderRadius: 20,
     marginBottom: 14,
   },
+
   card: {
-    borderRadius: 28,
+    borderRadius: 30,
     marginBottom: 16,
+    borderWidth: 1,
   },
+
+  cardContent: {
+    paddingVertical: 18,
+  },
+
+  cardIconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+
+  cardIcon: {
+    margin: 0,
+  },
+
   weekTop: {
     flexDirection: "row",
     alignItems: "center",
   },
+
   weekTextBox: {
     flex: 1,
     marginRight: 14,
   },
+
   progressBar: {
     height: 10,
     borderRadius: 999,
     marginTop: 18,
   },
+
   weekDaysRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginTop: 18,
   },
+
   weekDayItem: {
     alignItems: "center",
   },
+
   weekDot: {
     width: 22,
     height: 22,
@@ -1229,92 +1671,270 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginTop: 8,
   },
+
+  weekMessageBox: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 14,
+    marginTop: 16,
+  },
+
   shareButton: {
     borderRadius: 18,
-    marginTop: 18,
+    marginTop: 16,
   },
-  buttonContent: {
-    height: 48,
+
+  shareButtonContent: {
+    height: 52,
   },
+
+  sectionTitleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+
+  sectionTextBox: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 12,
+  },
+
+  sectionIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+
+  sectionIcon: {
+    margin: 0,
+  },
+
   comparisonGrid: {
     flexDirection: "row",
     gap: 10,
   },
+
   comparisonItem: {
     flex: 1,
     borderRadius: 18,
+    borderWidth: 1,
     padding: 12,
   },
+
   exerciseProgressItem: {
-    borderTopWidth: 1,
-    paddingTop: 16,
-    paddingBottom: 16,
+    borderWidth: 1,
+    borderRadius: 26,
+    padding: 14,
+    marginBottom: 14,
+    overflow: "hidden",
+    position: "relative",
   },
+
+  exerciseAccentLine: {
+    position: "absolute",
+    left: 0,
+    top: 18,
+    bottom: 18,
+    width: 4,
+    borderTopRightRadius: 999,
+    borderBottomRightRadius: 999,
+  },
+
   exerciseProgressHeader: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
+    paddingLeft: 4,
   },
+
+  exerciseIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+    flexShrink: 0,
+  },
+
+  exerciseIcon: {
+    margin: 0,
+  },
+
   exerciseProgressTitleBox: {
     flex: 1,
+    minWidth: 0,
     marginRight: 10,
   },
+
+  exerciseChip: {
+    flexShrink: 0,
+    alignSelf: "flex-start",
+  },
+
   exerciseMetricsRow: {
     flexDirection: "row",
     gap: 10,
-    marginTop: 14,
+    marginTop: 16,
   },
+
   exerciseMetric: {
     flex: 1,
-    borderRadius: 16,
-    padding: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
   },
-  exerciseProgressFooter: {
-    marginTop: 8,
+
+  exerciseResultBox: {
+    marginTop: 14,
+    borderRadius: 22,
+    borderWidth: 1,
+    padding: 14,
+  },
+
+  exerciseResultTop: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
   },
+
+  exerciseResultBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+
+  exerciseResultIcon: {
+    margin: 0,
+  },
+
+  exerciseShareButton: {
+    borderRadius: 17,
+  },
+
+  exerciseShareButtonContent: {
+    height: 46,
+  },
+
+  exerciseShareButtonLabel: {
+    fontWeight: "900",
+    letterSpacing: 0.1,
+  },
+
   grid: {
     flexDirection: "row",
     gap: 14,
     marginBottom: 14,
   },
+
   statCard: {
     flex: 1,
     borderRadius: 24,
+    borderWidth: 1,
   },
+
   statNumber: {
     fontWeight: "900",
   },
+
   emptyBox: {
-    paddingVertical: 28,
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    borderRadius: 22,
+    borderWidth: 1,
   },
+
   sessionItem: {
-    borderTopWidth: 1,
-    paddingTop: 14,
-    paddingBottom: 14,
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 14,
+    marginBottom: 10,
   },
+
   sessionTopRow: {
     flexDirection: "row",
     alignItems: "center",
   },
+
   sessionInfo: {
     flex: 1,
     marginRight: 12,
   },
+
   sessionStatsRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginTop: 10,
   },
+
+  premiumDialog: {
+    borderRadius: 30,
+    overflow: "hidden",
+    marginHorizontal: 18,
+  },
+
+  dialogTopContent: {
+    paddingHorizontal: 24,
+    paddingTop: 26,
+    paddingBottom: 14,
+    alignItems: "center",
+  },
+
+  dialogHeaderIcon: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+
+  dialogHeaderIconButton: {
+    margin: 0,
+  },
+
   shareDialogContent: {
     paddingHorizontal: 24,
-    paddingTop: 8,
-    paddingBottom: 8,
+    paddingTop: 10,
+    paddingBottom: 12,
   },
-  previewBox: {
+
+  shareHintBox: {
+    flexDirection: "row",
+    alignItems: "center",
     borderRadius: 18,
-    padding: 14,
+    borderWidth: 1,
+    paddingRight: 12,
     marginTop: 14,
+  },
+
+  shareHintIcon: {
+    margin: 0,
+  },
+
+  dialogActionsCustom: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 24,
+  },
+
+  dialogActionButton: {
+    flex: 1,
+    borderRadius: 16,
+  },
+
+  dialogActionContent: {
+    height: 48,
   },
 });

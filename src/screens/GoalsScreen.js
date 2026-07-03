@@ -1,6 +1,8 @@
 import React, { useCallback, useMemo, useState } from "react";
 import {
   Alert,
+  KeyboardAvoidingView,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -10,15 +12,13 @@ import {
   ActivityIndicator,
   Button,
   Card,
-  Chip,
   Dialog,
-  FAB,
   IconButton,
   Portal,
   ProgressBar,
-  SegmentedButtons,
   Text,
   TextInput,
+  TouchableRipple,
   useTheme,
 } from "react-native-paper";
 import { useFocusEffect } from "@react-navigation/native";
@@ -40,24 +40,28 @@ const GOAL_TYPES = [
   {
     value: "weight",
     label: "Peso",
+    description: "Meta en kg",
     icon: "dumbbell",
     unit: "kg",
   },
   {
     value: "workouts",
     label: "Entrenos",
+    description: "Cantidad total",
     icon: "calendar-check",
     unit: "entrenos",
   },
   {
     value: "volume",
     label: "Volumen",
+    description: "Carga acumulada",
     icon: "chart-bar",
     unit: "kg",
   },
   {
     value: "custom",
     label: "Libre",
+    description: "Personalizado",
     icon: "target",
     unit: "",
   },
@@ -92,6 +96,10 @@ export default function GoalsScreen({ navigation }) {
   const [goalDialogVisible, setGoalDialogVisible] = useState(false);
   const [selectedGoal, setSelectedGoal] = useState(null);
 
+  const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
+  const [goalToDelete, setGoalToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
   const [title, setTitle] = useState("");
   const [type, setType] = useState("weight");
   const [targetValue, setTargetValue] = useState("");
@@ -106,6 +114,34 @@ export default function GoalsScreen({ navigation }) {
   const [sharing, setSharing] = useState(false);
 
   const [error, setError] = useState("");
+
+  const softPrimary =
+    theme.custom?.softPrimary ||
+    (theme.dark ? "rgba(37, 99, 235, 0.18)" : "rgba(37, 99, 235, 0.1)");
+
+  const premiumSurface = theme.dark
+    ? "rgba(255,255,255,0.045)"
+    : "rgba(255,255,255,0.92)";
+
+  const premiumBorder = theme.dark
+    ? "rgba(255,255,255,0.09)"
+    : "rgba(15,23,42,0.08)";
+
+  const mutedSurface = theme.dark
+    ? "rgba(255,255,255,0.055)"
+    : "rgba(15,23,42,0.035)";
+
+  const successSoft = theme.dark
+    ? "rgba(34,197,94,0.13)"
+    : "rgba(22,163,74,0.08)";
+
+  const successColor = theme.dark ? "#86EFAC" : "#15803D";
+
+  const dangerSoft = theme.dark
+    ? "rgba(248,113,113,0.12)"
+    : "rgba(220,38,38,0.07)";
+
+  const dangerColor = theme.dark ? "#FCA5A5" : "#B91C1C";
 
   const activeGoals = useMemo(() => {
     return goals.filter((goal) => !goal.completed);
@@ -236,39 +272,36 @@ export default function GoalsScreen({ navigation }) {
     }
   };
 
-  const handleDeleteGoal = (goal) => {
-    Alert.alert(
-      "Eliminar objetivo",
-      `¿Querés eliminar "${goal.title}"?`,
-      [
-        {
-          text: "Cancelar",
-          style: "cancel",
-        },
-        {
-          text: "Eliminar",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              setLoading(true);
+  const openDeleteDialog = (goal) => {
+    setGoalToDelete(goal);
+    setDeleteDialogVisible(true);
+  };
 
-              await deleteGoal({
-                uid: user.uid,
-                goalId: goal.id,
-              });
+  const closeDeleteDialog = () => {
+    if (deleting) return;
 
-              await loadGoals();
-            } catch (err) {
-              Alert.alert(
-                "Error",
-                err?.message || "No se pudo eliminar el objetivo."
-              );
-              setLoading(false);
-            }
-          },
-        },
-      ]
-    );
+    setDeleteDialogVisible(false);
+    setGoalToDelete(null);
+  };
+
+  const handleDeleteGoal = async () => {
+    try {
+      if (!goalToDelete) return;
+
+      setDeleting(true);
+
+      await deleteGoal({
+        uid: user.uid,
+        goalId: goalToDelete.id,
+      });
+
+      closeDeleteDialog();
+      await loadGoals();
+    } catch (err) {
+      Alert.alert("Error", err?.message || "No se pudo eliminar el objetivo.");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleQuickProgress = async ({ goal, amount }) => {
@@ -368,8 +401,7 @@ export default function GoalsScreen({ navigation }) {
       const userName =
         userProfile?.name || user?.displayName || "Usuario Forte";
 
-      const userPhotoURL =
-        userProfile?.photoURL || user?.photoURL || null;
+      const userPhotoURL = userProfile?.photoURL || user?.photoURL || null;
 
       await createGoalPost({
         uid: user.uid,
@@ -392,6 +424,92 @@ export default function GoalsScreen({ navigation }) {
     }
   };
 
+  const renderTypeOption = (item) => {
+    const selected = type === item.value;
+
+    return (
+      <TouchableRipple
+        key={item.value}
+        borderless
+        onPress={() => handleTypeChange(item.value)}
+        style={[
+          styles.typeOption,
+          {
+            backgroundColor: selected ? softPrimary : mutedSurface,
+            borderColor: selected ? theme.colors.primary : premiumBorder,
+          },
+        ]}
+      >
+        <View style={styles.typeOptionContent}>
+          <View
+            style={[
+              styles.typeIconBox,
+              {
+                backgroundColor: selected
+                  ? theme.colors.primary
+                  : theme.colors.surface,
+                borderColor: selected ? theme.colors.primary : premiumBorder,
+              },
+            ]}
+          >
+            <IconButton
+              icon={item.icon}
+              size={18}
+              iconColor={
+                selected
+                  ? theme.colors.onPrimary
+                  : theme.colors.onSurfaceVariant
+              }
+              style={styles.typeIcon}
+            />
+          </View>
+
+          <View style={styles.typeTextBox}>
+            <Text
+              variant="labelLarge"
+              numberOfLines={1}
+              style={{
+                color: selected
+                  ? theme.colors.primary
+                  : theme.colors.onSurface,
+                fontWeight: "900",
+              }}
+            >
+              {item.label}
+            </Text>
+
+            <Text
+              variant="bodySmall"
+              numberOfLines={1}
+              style={{
+                color: theme.colors.onSurfaceVariant,
+                marginTop: 1,
+              }}
+            >
+              {item.description}
+            </Text>
+          </View>
+
+          {selected && (
+            <View
+              style={[
+                styles.typeSelectedBadge,
+                { backgroundColor: theme.colors.primary },
+              ]}
+            >
+              <IconButton
+                icon="check"
+                size={12}
+                iconColor={theme.colors.onPrimary}
+                style={styles.typeSelectedIcon}
+              />
+            </View>
+          )}
+        </View>
+      </TouchableRipple>
+    );
+  };
+
   const renderGoalCard = (goal) => {
     const progress = getGoalProgress(goal);
     const typeData = getGoalTypeData(goal.type);
@@ -404,21 +522,22 @@ export default function GoalsScreen({ navigation }) {
         style={[
           styles.goalCard,
           {
-            backgroundColor: completed
-              ? theme.custom.softPrimary
-              : theme.colors.surface,
+            backgroundColor: completed ? successSoft : premiumSurface,
+            borderColor: completed
+              ? theme.dark
+                ? "rgba(134,239,172,0.22)"
+                : "rgba(22,163,74,0.16)"
+              : premiumBorder,
           },
         ]}
       >
-        <Card.Content>
+        <Card.Content style={styles.goalCardContent}>
           <View style={styles.goalHeader}>
             <View
               style={[
                 styles.goalIconBox,
                 {
-                  backgroundColor: completed
-                    ? theme.colors.primary
-                    : theme.colors.surfaceVariant,
+                  backgroundColor: completed ? successColor : softPrimary,
                 },
               ]}
             >
@@ -426,7 +545,7 @@ export default function GoalsScreen({ navigation }) {
                 icon={completed ? "check-bold" : typeData.icon}
                 size={22}
                 iconColor={
-                  completed ? theme.colors.onPrimary : theme.colors.primary
+                  completed ? theme.colors.background : theme.colors.primary
                 }
                 style={styles.goalIcon}
               />
@@ -435,48 +554,75 @@ export default function GoalsScreen({ navigation }) {
             <View style={styles.goalTitleBox}>
               <Text
                 variant="titleMedium"
-                numberOfLines={1}
                 style={{
                   color: theme.colors.onSurface,
                   fontWeight: "900",
+                  letterSpacing: -0.2,
+                  lineHeight: 23,
                 }}
               >
                 {goal.title}
               </Text>
 
-              <Text
-                variant="bodySmall"
-                style={{
-                  color: theme.colors.onSurfaceVariant,
-                  marginTop: 3,
-                }}
-              >
-                {typeData.label} · {completed ? "Cumplido" : "En progreso"}
-              </Text>
+              <View style={styles.goalMetaRow}>
+                <Text
+                  variant="bodySmall"
+                  style={{
+                    color: theme.colors.onSurfaceVariant,
+                    fontWeight: "700",
+                  }}
+                >
+                  {typeData.label}
+                </Text>
+
+                <View
+                  style={[
+                    styles.metaDot,
+                    { backgroundColor: theme.colors.onSurfaceVariant },
+                  ]}
+                />
+
+                <Text
+                  variant="bodySmall"
+                  style={{
+                    color: completed ? successColor : theme.colors.primary,
+                    fontWeight: "900",
+                  }}
+                >
+                  {completed ? "Cumplido" : "En progreso"}
+                </Text>
+              </View>
             </View>
 
-            <Chip
-              compact
-              style={{
-                backgroundColor: completed
-                  ? theme.colors.surface
-                  : theme.colors.surfaceVariant,
-              }}
-              textStyle={{
-                color: completed
-                  ? theme.colors.primary
-                  : theme.colors.onSurfaceVariant,
-                fontWeight: "900",
-              }}
+            <View
+              style={[
+                styles.percentBadge,
+                {
+                  backgroundColor: completed ? successColor : softPrimary,
+                },
+              ]}
             >
-              {progress}%
-            </Chip>
+              <Text
+                variant="labelLarge"
+                style={{
+                  color: completed
+                    ? theme.colors.background
+                    : theme.colors.primary,
+                  fontWeight: "900",
+                }}
+              >
+                {progress}%
+              </Text>
+            </View>
           </View>
 
           <View style={styles.goalProgressInfo}>
             <Text
               variant="bodyMedium"
-              style={{ color: theme.colors.onSurfaceVariant }}
+              style={{
+                color: theme.colors.onSurfaceVariant,
+                lineHeight: 21,
+              }}
             >
               {formatNumber(goal.currentValue)}
               {goal.unit ? ` ${goal.unit}` : ""} de{" "}
@@ -487,21 +633,30 @@ export default function GoalsScreen({ navigation }) {
 
           <ProgressBar
             progress={progress / 100}
-            color={theme.colors.primary}
+            color={completed ? successColor : theme.colors.primary}
             style={[
               styles.progressBar,
-              { backgroundColor: theme.colors.surfaceVariant },
+              {
+                backgroundColor: theme.dark
+                  ? "rgba(255,255,255,0.08)"
+                  : "rgba(15,23,42,0.08)",
+              },
             ]}
           />
 
-          <View style={styles.goalActions}>
-            {!completed && (
-              <>
+          {!completed ? (
+            <View style={styles.goalActions}>
+              <View style={styles.quickActions}>
                 <Button
                   mode="outlined"
                   compact
                   icon="minus"
-                  style={styles.smallButton}
+                  style={[
+                    styles.quickButton,
+                    {
+                      borderColor: premiumBorder,
+                    },
+                  ]}
                   onPress={() =>
                     handleQuickProgress({
                       goal,
@@ -516,7 +671,12 @@ export default function GoalsScreen({ navigation }) {
                   mode="outlined"
                   compact
                   icon="plus"
-                  style={styles.smallButton}
+                  style={[
+                    styles.quickButton,
+                    {
+                      borderColor: premiumBorder,
+                    },
+                  ]}
                   onPress={() =>
                     handleQuickProgress({
                       goal,
@@ -526,42 +686,109 @@ export default function GoalsScreen({ navigation }) {
                 >
                   1
                 </Button>
+              </View>
 
-                <Button
-                  mode="contained-tonal"
-                  compact
-                  icon="check-circle-outline"
-                  style={styles.actionButton}
-                  onPress={() => handleCompleteGoal(goal)}
-                >
-                  Cumplir
-                </Button>
-              </>
-            )}
-
-            {completed && (
               <Button
-                mode="contained-tonal"
+                mode="contained"
                 compact
-                icon="share-variant-outline"
-                style={styles.actionButton}
-                onPress={() => openShareDialog(goal)}
+                icon="check-circle-outline"
+                style={styles.completeButton}
+                contentStyle={styles.goalButtonContent}
+                onPress={() => handleCompleteGoal(goal)}
               >
-                Compartir
+                Cumplir
               </Button>
-            )}
+            </View>
+          ) : (
+            <TouchableRipple
+              borderless
+              onPress={() => openShareDialog(goal)}
+              style={[
+                styles.shareButton,
+                {
+                  backgroundColor: theme.dark
+                    ? "rgba(134,239,172,0.16)"
+                    : "rgba(22,163,74,0.1)",
+                  borderColor: theme.dark
+                    ? "rgba(134,239,172,0.26)"
+                    : "rgba(22,163,74,0.18)",
+                },
+              ]}
+            >
+              <View style={styles.shareButtonContent}>
+                <View
+                  style={[
+                    styles.shareIconBox,
+                    {
+                      backgroundColor: successColor,
+                    },
+                  ]}
+                >
+                  <IconButton
+                    icon="share-variant-outline"
+                    size={19}
+                    iconColor={theme.colors.background}
+                    style={styles.shareIcon}
+                  />
+                </View>
 
+                <View style={styles.shareTextBox}>
+                  <Text
+                    variant="labelLarge"
+                    style={{
+                      color: successColor,
+                      fontWeight: "900",
+                    }}
+                  >
+                    Compartir logro
+                  </Text>
+
+                  <Text
+                    variant="bodySmall"
+                    style={{
+                      color: theme.colors.onSurfaceVariant,
+                      marginTop: 1,
+                    }}
+                  >
+                    Publicalo en Social
+                  </Text>
+                </View>
+
+                <IconButton
+                  icon="chevron-right"
+                  size={22}
+                  iconColor={successColor}
+                  style={styles.shareArrow}
+                />
+              </View>
+            </TouchableRipple>
+          )}
+
+          <View style={styles.secondaryActions}>
             <IconButton
               icon="pencil-outline"
               size={21}
+              iconColor={theme.colors.primary}
               onPress={() => openEditDialog(goal)}
+              style={[
+                styles.iconActionButton,
+                {
+                  backgroundColor: softPrimary,
+                },
+              ]}
             />
 
             <IconButton
               icon="trash-can-outline"
               size={21}
               iconColor={theme.colors.error}
-              onPress={() => handleDeleteGoal(goal)}
+              onPress={() => openDeleteDialog(goal)}
+              style={[
+                styles.iconActionButton,
+                {
+                  backgroundColor: dangerSoft,
+                },
+              ]}
             />
           </View>
         </Card.Content>
@@ -574,6 +801,8 @@ export default function GoalsScreen({ navigation }) {
       <ScrollView
         style={{ backgroundColor: theme.colors.background }}
         contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
@@ -582,12 +811,47 @@ export default function GoalsScreen({ navigation }) {
           <IconButton
             icon="arrow-left"
             size={24}
+            iconColor={theme.colors.onBackground}
             onPress={() => navigation.goBack()}
+            style={[
+              styles.backButton,
+              {
+                backgroundColor: mutedSurface,
+              },
+            ]}
           />
 
           <View style={styles.headerText}>
+            <View
+              style={[
+                styles.eyebrowPill,
+                {
+                  backgroundColor: softPrimary,
+                  borderColor: premiumBorder,
+                },
+              ]}
+            >
+              <IconButton
+                icon="target"
+                size={15}
+                iconColor={theme.colors.primary}
+                style={styles.eyebrowIcon}
+              />
+
+              <Text
+                variant="labelSmall"
+                style={{
+                  color: theme.colors.primary,
+                  fontWeight: "900",
+                  letterSpacing: 0.7,
+                }}
+              >
+                FORTE GOALS
+              </Text>
+            </View>
+
             <Text
-              variant="headlineSmall"
+              variant="headlineMedium"
               style={[styles.title, { color: theme.colors.onBackground }]}
             >
               Objetivos
@@ -595,12 +859,28 @@ export default function GoalsScreen({ navigation }) {
 
             <Text
               variant="bodyMedium"
-              style={{ color: theme.colors.onSurfaceVariant }}
+              style={{
+                color: theme.colors.onSurfaceVariant,
+                lineHeight: 20,
+                marginTop: 5,
+              }}
             >
-              Marcá metas, seguí avances y compartí logros.
+              Marcá metas, seguí avances y compartí tus logros.
             </Text>
           </View>
         </View>
+
+        {!loading && goals.length > 0 && (
+          <Button
+            mode="contained"
+            icon="plus"
+            style={styles.createButton}
+            contentStyle={styles.buttonContent}
+            onPress={openCreateDialog}
+          >
+            Nuevo objetivo
+          </Button>
+        )}
 
         {loading ? (
           <View style={styles.loadingBox}>
@@ -636,16 +916,39 @@ export default function GoalsScreen({ navigation }) {
 
             <Card
               mode="contained"
-              style={[styles.summaryCard, { backgroundColor: theme.colors.surface }]}
+              style={[
+                styles.summaryCard,
+                {
+                  backgroundColor: premiumSurface,
+                  borderColor: premiumBorder,
+                },
+              ]}
             >
-              <Card.Content>
+              <Card.Content style={styles.summaryContent}>
                 <View style={styles.summaryRow}>
                   <View style={styles.summaryTextBox}>
+                    <View
+                      style={[
+                        styles.summaryIconBox,
+                        {
+                          backgroundColor: softPrimary,
+                        },
+                      ]}
+                    >
+                      <IconButton
+                        icon="chart-line"
+                        size={20}
+                        iconColor={theme.colors.primary}
+                        style={styles.summaryIcon}
+                      />
+                    </View>
+
                     <Text
                       variant="titleLarge"
                       style={{
                         color: theme.colors.onSurface,
                         fontWeight: "900",
+                        letterSpacing: -0.3,
                       }}
                     >
                       Progreso general
@@ -664,38 +967,12 @@ export default function GoalsScreen({ navigation }) {
                     </Text>
                   </View>
 
-                  <Text
-                    variant="headlineMedium"
-                    style={{
-                      color: theme.colors.primary,
-                      fontWeight: "900",
-                    }}
-                  >
-                    {generalProgress}%
-                  </Text>
-                </View>
-
-                <ProgressBar
-                  progress={generalProgress / 100}
-                  color={theme.colors.primary}
-                  style={[
-                    styles.summaryProgress,
-                    { backgroundColor: theme.colors.surfaceVariant },
-                  ]}
-                />
-              </Card.Content>
-            </Card>
-
-            {goals.length === 0 ? (
-              <Card
-                mode="contained"
-                style={[styles.emptyCard, { backgroundColor: theme.colors.surface }]}
-              >
-                <Card.Content>
                   <View
                     style={[
-                      styles.emptyIcon,
-                      { backgroundColor: theme.custom.softPrimary },
+                      styles.summaryPercentBox,
+                      {
+                        backgroundColor: softPrimary,
+                      },
                     ]}
                   >
                     <Text
@@ -705,8 +982,50 @@ export default function GoalsScreen({ navigation }) {
                         fontWeight: "900",
                       }}
                     >
-                      🎯
+                      {generalProgress}%
                     </Text>
+                  </View>
+                </View>
+
+                <ProgressBar
+                  progress={generalProgress / 100}
+                  color={theme.colors.primary}
+                  style={[
+                    styles.summaryProgress,
+                    {
+                      backgroundColor: theme.dark
+                        ? "rgba(255,255,255,0.08)"
+                        : "rgba(15,23,42,0.08)",
+                    },
+                  ]}
+                />
+              </Card.Content>
+            </Card>
+
+            {goals.length === 0 ? (
+              <Card
+                mode="contained"
+                style={[
+                  styles.emptyCard,
+                  {
+                    backgroundColor: premiumSurface,
+                    borderColor: premiumBorder,
+                  },
+                ]}
+              >
+                <Card.Content style={styles.emptyContent}>
+                  <View
+                    style={[
+                      styles.emptyIcon,
+                      { backgroundColor: softPrimary },
+                    ]}
+                  >
+                    <IconButton
+                      icon="target"
+                      size={31}
+                      iconColor={theme.colors.primary}
+                      style={styles.emptyIconButton}
+                    />
                   </View>
 
                   <Text
@@ -715,6 +1034,7 @@ export default function GoalsScreen({ navigation }) {
                       color: theme.colors.onSurface,
                       fontWeight: "900",
                       textAlign: "center",
+                      letterSpacing: -0.3,
                     }}
                   >
                     Creá tu primer objetivo
@@ -748,15 +1068,26 @@ export default function GoalsScreen({ navigation }) {
               <>
                 {activeGoals.length > 0 && (
                   <>
-                    <Text
-                      variant="titleLarge"
-                      style={[
-                        styles.sectionTitle,
-                        { color: theme.colors.onBackground },
-                      ]}
-                    >
-                      En progreso
-                    </Text>
+                    <View style={styles.sectionHeader}>
+                      <View>
+                        <Text
+                          variant="titleLarge"
+                          style={[
+                            styles.sectionTitle,
+                            { color: theme.colors.onBackground },
+                          ]}
+                        >
+                          En progreso
+                        </Text>
+
+                        <Text
+                          variant="bodySmall"
+                          style={{ color: theme.colors.onSurfaceVariant }}
+                        >
+                          {activeGoals.length} activos
+                        </Text>
+                      </View>
+                    </View>
 
                     {activeGoals.map(renderGoalCard)}
                   </>
@@ -764,15 +1095,26 @@ export default function GoalsScreen({ navigation }) {
 
                 {completedGoals.length > 0 && (
                   <>
-                    <Text
-                      variant="titleLarge"
-                      style={[
-                        styles.sectionTitle,
-                        { color: theme.colors.onBackground },
-                      ]}
-                    >
-                      Cumplidos
-                    </Text>
+                    <View style={styles.sectionHeader}>
+                      <View>
+                        <Text
+                          variant="titleLarge"
+                          style={[
+                            styles.sectionTitle,
+                            { color: theme.colors.onBackground },
+                          ]}
+                        >
+                          Cumplidos
+                        </Text>
+
+                        <Text
+                          variant="bodySmall"
+                          style={{ color: theme.colors.onSurfaceVariant }}
+                        >
+                          Listos para compartir
+                        </Text>
+                      </View>
+                    </View>
 
                     {completedGoals.map(renderGoalCard)}
                   </>
@@ -783,320 +1125,932 @@ export default function GoalsScreen({ navigation }) {
         )}
       </ScrollView>
 
-      {!loading && goals.length > 0 && (
-        <FAB
-          icon="plus"
-          label="Objetivo"
-          style={[styles.fab, { backgroundColor: theme.colors.primary }]}
-          color={theme.colors.onPrimary}
-          onPress={openCreateDialog}
-        />
-      )}
-
       <Portal>
-        <Dialog
-          visible={goalDialogVisible}
-          onDismiss={closeGoalDialog}
-          style={{ backgroundColor: theme.colors.surface }}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
+          pointerEvents="box-none"
+          style={styles.keyboardAvoidingView}
         >
-          <Dialog.Title>
-            {selectedGoal ? "Editar objetivo" : "Nuevo objetivo"}
-          </Dialog.Title>
-
-          <Dialog.ScrollArea>
-            <ScrollView
-              contentContainerStyle={styles.dialogContent}
-              keyboardShouldPersistTaps="handled"
-            >
-              <TextInput
-                mode="outlined"
-                label="Título"
-                value={title}
-                onChangeText={setTitle}
-                placeholder="Ej: Llegar a 80kg en press banca"
-                style={styles.input}
-              />
-
-              <SegmentedButtons
-                value={type}
-                onValueChange={handleTypeChange}
-                buttons={GOAL_TYPES.map((item) => ({
-                  value: item.value,
-                  label: item.label,
-                  icon: item.icon,
-                }))}
-                style={styles.segmented}
-              />
-
-              <View style={styles.formGrid}>
-                <TextInput
-                  mode="outlined"
-                  label="Actual"
-                  value={currentValue}
-                  onChangeText={setCurrentValue}
-                  keyboardType="decimal-pad"
-                  style={styles.formInput}
-                />
-
-                <TextInput
-                  mode="outlined"
-                  label="Meta"
-                  value={targetValue}
-                  onChangeText={setTargetValue}
-                  keyboardType="decimal-pad"
-                  style={styles.formInput}
+          <Dialog
+            visible={goalDialogVisible}
+            onDismiss={closeGoalDialog}
+            style={[
+              styles.premiumDialog,
+              {
+                backgroundColor: theme.colors.surface,
+              },
+            ]}
+          >
+            <View style={styles.dialogTopContent}>
+              <View
+                style={[
+                  styles.dialogHeaderIcon,
+                  {
+                    backgroundColor: softPrimary,
+                  },
+                ]}
+              >
+                <IconButton
+                  icon={selectedGoal ? "pencil-outline" : "target"}
+                  size={24}
+                  iconColor={theme.colors.primary}
+                  style={styles.dialogHeaderIconButton}
                 />
               </View>
 
-              <TextInput
-                mode="outlined"
-                label="Unidad"
-                value={unit}
-                onChangeText={setUnit}
-                placeholder="kg, entrenos, días..."
-                style={styles.input}
-              />
-            </ScrollView>
-          </Dialog.ScrollArea>
+              <Text
+                variant="titleLarge"
+                style={{
+                  color: theme.colors.onSurface,
+                  fontWeight: "900",
+                  textAlign: "center",
+                  letterSpacing: -0.3,
+                }}
+              >
+                {selectedGoal ? "Editar objetivo" : "Nuevo objetivo"}
+              </Text>
 
-          <Dialog.Actions>
-            <Button disabled={saving} onPress={closeGoalDialog}>
-              Cancelar
-            </Button>
-
-            <Button
-              mode="contained"
-              loading={saving}
-              disabled={saving}
-              onPress={handleSaveGoal}
-            >
-              Guardar
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-
-        <Dialog
-          visible={shareDialogVisible}
-          onDismiss={closeShareDialog}
-          style={{ backgroundColor: theme.colors.surface }}
-        >
-          <Dialog.Title>Compartir objetivo</Dialog.Title>
-
-          <Dialog.ScrollArea>
-            <ScrollView
-              contentContainerStyle={styles.dialogContent}
-              keyboardShouldPersistTaps="handled"
-            >
               <Text
                 variant="bodyMedium"
                 style={{
                   color: theme.colors.onSurfaceVariant,
-                  marginBottom: 12,
+                  textAlign: "center",
+                  marginTop: 6,
+                  lineHeight: 20,
+                }}
+              >
+                Configurá una meta clara para seguir tu progreso.
+              </Text>
+            </View>
+
+            <Dialog.ScrollArea style={styles.goalDialogScrollArea}>
+              <ScrollView
+                contentContainerStyle={styles.dialogContent}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="interactive"
+                showsVerticalScrollIndicator={false}
+              >
+                <TextInput
+                  mode="outlined"
+                  label="Título"
+                  value={title}
+                  onChangeText={setTitle}
+                  placeholder="Ej: Llegar a 80kg en press banca"
+                  style={styles.input}
+                  outlineStyle={{ borderRadius: 16 }}
+                />
+
+                <View style={styles.formSection}>
+                  <Text
+                    variant="labelLarge"
+                    style={{
+                      color: theme.colors.onSurface,
+                      fontWeight: "900",
+                      marginBottom: 10,
+                    }}
+                  >
+                    Tipo de objetivo
+                  </Text>
+
+                  <View style={styles.typeGrid}>
+                    {GOAL_TYPES.map(renderTypeOption)}
+                  </View>
+                </View>
+
+                <View style={styles.formGrid}>
+                  <TextInput
+                    mode="outlined"
+                    label="Actual"
+                    value={currentValue}
+                    onChangeText={setCurrentValue}
+                    keyboardType="decimal-pad"
+                    style={styles.formInput}
+                    outlineStyle={{ borderRadius: 16 }}
+                  />
+
+                  <TextInput
+                    mode="outlined"
+                    label="Meta"
+                    value={targetValue}
+                    onChangeText={setTargetValue}
+                    keyboardType="decimal-pad"
+                    style={styles.formInput}
+                    outlineStyle={{ borderRadius: 16 }}
+                  />
+                </View>
+
+                <TextInput
+                  mode="outlined"
+                  label="Unidad"
+                  value={unit}
+                  onChangeText={setUnit}
+                  placeholder="kg, entrenos, días..."
+                  style={styles.input}
+                  outlineStyle={{ borderRadius: 16 }}
+                />
+              </ScrollView>
+            </Dialog.ScrollArea>
+
+            <View style={styles.dialogActionsCustom}>
+              <Button
+                mode="outlined"
+                disabled={saving}
+                onPress={closeGoalDialog}
+                style={[
+                  styles.dialogActionButton,
+                  {
+                    borderColor: premiumBorder,
+                  },
+                ]}
+                contentStyle={styles.dialogActionContent}
+              >
+                Cancelar
+              </Button>
+
+              <Button
+                mode="contained"
+                loading={saving}
+                disabled={saving}
+                onPress={handleSaveGoal}
+                style={styles.dialogActionButton}
+                contentStyle={styles.dialogActionContent}
+              >
+                Guardar
+              </Button>
+            </View>
+          </Dialog>
+
+          <Dialog
+            visible={deleteDialogVisible}
+            onDismiss={closeDeleteDialog}
+            style={[
+              styles.premiumDialog,
+              {
+                backgroundColor: theme.colors.surface,
+              },
+            ]}
+          >
+            <View style={styles.deleteDialogContent}>
+              <View
+                style={[
+                  styles.deleteIconBox,
+                  {
+                    backgroundColor: dangerSoft,
+                  },
+                ]}
+              >
+                <IconButton
+                  icon="trash-can-outline"
+                  size={30}
+                  iconColor={dangerColor}
+                  style={styles.deleteIcon}
+                />
+              </View>
+
+              <Text
+                variant="titleLarge"
+                style={{
+                  color: theme.colors.onSurface,
+                  fontWeight: "900",
+                  textAlign: "center",
+                  letterSpacing: -0.3,
+                }}
+              >
+                Eliminar objetivo
+              </Text>
+
+              <Text
+                variant="bodyMedium"
+                style={{
+                  color: theme.colors.onSurfaceVariant,
+                  textAlign: "center",
+                  marginTop: 8,
                   lineHeight: 21,
                 }}
               >
-                Escribí un comentario para acompañar tu logro. Si lo dejás
-                vacío, usamos un resumen automático.
+                Esta acción eliminará el objetivo de tu lista. No vas a poder
+                recuperarlo desde la app.
               </Text>
 
-              <TextInput
-                mode="outlined"
-                label="Comentario"
-                value={shareComment}
-                onChangeText={setShareComment}
-                multiline
-                numberOfLines={4}
-                placeholder="Ej: Después de varias semanas, objetivo cumplido 💪"
-              />
+              {!!goalToDelete?.title && (
+                <View
+                  style={[
+                    styles.deletePreview,
+                    {
+                      backgroundColor: mutedSurface,
+                      borderColor: premiumBorder,
+                    },
+                  ]}
+                >
+                  <Text
+                    variant="labelSmall"
+                    style={{
+                      color: theme.colors.onSurfaceVariant,
+                      fontWeight: "800",
+                      marginBottom: 4,
+                    }}
+                  >
+                    OBJETIVO
+                  </Text>
 
+                  <Text
+                    variant="titleMedium"
+                    style={{
+                      color: theme.colors.onSurface,
+                      fontWeight: "900",
+                      textAlign: "center",
+                      lineHeight: 22,
+                    }}
+                  >
+                    {goalToDelete.title}
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.deleteActions}>
+                <Button
+                  mode="outlined"
+                  disabled={deleting}
+                  onPress={closeDeleteDialog}
+                  style={[
+                    styles.deleteActionButton,
+                    {
+                      borderColor: premiumBorder,
+                    },
+                  ]}
+                  contentStyle={styles.dialogActionContent}
+                >
+                  Cancelar
+                </Button>
+
+                <Button
+                  mode="contained"
+                  icon="trash-can-outline"
+                  loading={deleting}
+                  disabled={deleting}
+                  onPress={handleDeleteGoal}
+                  buttonColor={dangerColor}
+                  textColor={theme.dark ? "#111827" : "#FFFFFF"}
+                  style={styles.deleteActionButton}
+                  contentStyle={styles.dialogActionContent}
+                >
+                  Eliminar
+                </Button>
+              </View>
+            </View>
+          </Dialog>
+
+          <Dialog
+            visible={shareDialogVisible}
+            onDismiss={closeShareDialog}
+            style={[
+              styles.premiumDialog,
+              {
+                backgroundColor: theme.colors.surface,
+              },
+            ]}
+          >
+            <View style={styles.dialogTopContent}>
               <View
                 style={[
-                  styles.previewBox,
-                  { backgroundColor: theme.colors.surfaceVariant },
+                  styles.dialogHeaderIcon,
+                  {
+                    backgroundColor: successSoft,
+                  },
                 ]}
               >
-                <Text
-                  variant="labelLarge"
-                  style={{
-                    color: theme.colors.onSurface,
-                    fontWeight: "900",
-                    marginBottom: 6,
-                  }}
-                >
-                  Vista previa
-                </Text>
-
-                <Text
-                  variant="bodyMedium"
-                  style={{
-                    color: theme.colors.onSurfaceVariant,
-                    lineHeight: 21,
-                  }}
-                >
-                  {shareComment.trim() || getDefaultShareText()}
-                </Text>
+                <IconButton
+                  icon="share-variant-outline"
+                  size={24}
+                  iconColor={successColor}
+                  style={styles.dialogHeaderIconButton}
+                />
               </View>
-            </ScrollView>
-          </Dialog.ScrollArea>
 
-          <Dialog.Actions>
-            <Button disabled={sharing} onPress={closeShareDialog}>
-              Cancelar
-            </Button>
+              <Text
+                variant="titleLarge"
+                style={{
+                  color: theme.colors.onSurface,
+                  fontWeight: "900",
+                  textAlign: "center",
+                  letterSpacing: -0.3,
+                }}
+              >
+                Compartir logro
+              </Text>
 
-            <Button
-              mode="contained"
-              loading={sharing}
-              disabled={sharing}
-              onPress={handleShareGoal}
-            >
-              Publicar
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
+              <Text
+                variant="bodyMedium"
+                style={{
+                  color: theme.colors.onSurfaceVariant,
+                  textAlign: "center",
+                  marginTop: 6,
+                  lineHeight: 20,
+                }}
+              >
+                Sumá un comentario y publicalo en Social.
+              </Text>
+            </View>
+
+            <Dialog.ScrollArea style={styles.shareDialogScrollArea}>
+              <ScrollView
+                contentContainerStyle={styles.dialogContent}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="interactive"
+                showsVerticalScrollIndicator={false}
+              >
+                <TextInput
+                  mode="outlined"
+                  label="Comentario"
+                  value={shareComment}
+                  onChangeText={setShareComment}
+                  multiline
+                  numberOfLines={4}
+                  placeholder="Ej: Después de varias semanas, objetivo cumplido 💪"
+                  outlineStyle={{ borderRadius: 16 }}
+                />
+
+                <View
+                  style={[
+                    styles.previewBox,
+                    {
+                      backgroundColor: mutedSurface,
+                      borderColor: premiumBorder,
+                    },
+                  ]}
+                >
+                  <View style={styles.previewHeader}>
+                    <View
+                      style={[
+                        styles.previewIconBox,
+                        {
+                          backgroundColor: successSoft,
+                        },
+                      ]}
+                    >
+                      <IconButton
+                        icon="share-variant-outline"
+                        size={18}
+                        iconColor={successColor}
+                        style={styles.previewIcon}
+                      />
+                    </View>
+
+                    <Text
+                      variant="labelLarge"
+                      style={{
+                        color: theme.colors.onSurface,
+                        fontWeight: "900",
+                      }}
+                    >
+                      Vista previa
+                    </Text>
+                  </View>
+
+                  <Text
+                    variant="bodyMedium"
+                    style={{
+                      color: theme.colors.onSurfaceVariant,
+                      lineHeight: 21,
+                      marginTop: 10,
+                    }}
+                  >
+                    {shareComment.trim() || getDefaultShareText()}
+                  </Text>
+                </View>
+              </ScrollView>
+            </Dialog.ScrollArea>
+
+            <View style={styles.dialogActionsCustom}>
+              <Button
+                mode="outlined"
+                disabled={sharing}
+                onPress={closeShareDialog}
+                style={[
+                  styles.dialogActionButton,
+                  {
+                    borderColor: premiumBorder,
+                  },
+                ]}
+                contentStyle={styles.dialogActionContent}
+              >
+                Cancelar
+              </Button>
+
+              <Button
+                mode="contained"
+                icon="send"
+                loading={sharing}
+                disabled={sharing}
+                onPress={handleShareGoal}
+                style={styles.dialogActionButton}
+                contentStyle={styles.dialogActionContent}
+              >
+                Publicar
+              </Button>
+            </View>
+          </Dialog>
+        </KeyboardAvoidingView>
       </Portal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoidingView: {
+    flex: 1,
+    justifyContent: "center",
+  },
+
   container: {
     padding: 20,
     paddingTop: 50,
-    paddingBottom: 130,
+    paddingBottom: 110,
   },
+
   header: {
     flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 16,
+    alignItems: "flex-start",
+    marginBottom: 18,
   },
+
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    margin: 0,
+    marginRight: 12,
+    marginTop: 2,
+  },
+
   headerText: {
     flex: 1,
   },
+
+  eyebrowPill: {
+    alignSelf: "flex-start",
+    minHeight: 30,
+    paddingRight: 12,
+    paddingLeft: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+
+  eyebrowIcon: {
+    width: 26,
+    height: 26,
+    margin: 0,
+  },
+
   title: {
     fontWeight: "900",
+    letterSpacing: -0.7,
   },
+
+  createButton: {
+    borderRadius: 18,
+    marginBottom: 16,
+  },
+
+  buttonContent: {
+    height: 50,
+  },
+
   loadingBox: {
     minHeight: 360,
     alignItems: "center",
     justifyContent: "center",
   },
+
   errorCard: {
     borderRadius: 20,
     marginBottom: 14,
   },
+
   summaryCard: {
-    borderRadius: 28,
-    marginBottom: 16,
+    borderRadius: 30,
+    marginBottom: 18,
+    borderWidth: 1,
+    overflow: "hidden",
   },
+
+  summaryContent: {
+    paddingVertical: 20,
+  },
+
   summaryRow: {
     flexDirection: "row",
     alignItems: "center",
   },
+
   summaryTextBox: {
     flex: 1,
     marginRight: 12,
   },
+
+  summaryIconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+
+  summaryIcon: {
+    margin: 0,
+  },
+
+  summaryPercentBox: {
+    minWidth: 84,
+    height: 84,
+    borderRadius: 42,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
   summaryProgress: {
     height: 10,
     borderRadius: 999,
     marginTop: 18,
   },
+
   emptyCard: {
     borderRadius: 30,
+    borderWidth: 1,
   },
+
+  emptyContent: {
+    alignItems: "center",
+  },
+
   emptyIcon: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+    width: 74,
+    height: 74,
+    borderRadius: 37,
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "center",
     marginBottom: 18,
   },
+
+  emptyIconButton: {
+    margin: 0,
+  },
+
   emptyButton: {
     borderRadius: 18,
     marginTop: 22,
+    alignSelf: "stretch",
   },
-  buttonContent: {
-    height: 50,
-  },
-  sectionTitle: {
-    fontWeight: "900",
+
+  sectionHeader: {
     marginTop: 8,
     marginBottom: 12,
   },
-  goalCard: {
-    borderRadius: 26,
-    marginBottom: 14,
+
+  sectionTitle: {
+    fontWeight: "900",
+    letterSpacing: -0.3,
   },
+
+  goalCard: {
+    borderRadius: 28,
+    marginBottom: 14,
+    borderWidth: 1,
+  },
+
+  goalCardContent: {
+    paddingVertical: 16,
+  },
+
   goalHeader: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
   },
+
   goalIconBox: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
+    marginTop: 1,
   },
+
   goalIcon: {
     margin: 0,
   },
+
   goalTitleBox: {
     flex: 1,
     marginRight: 10,
   },
+
+  goalMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 5,
+    flexWrap: "wrap",
+  },
+
+  metaDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    opacity: 0.65,
+    marginHorizontal: 7,
+  },
+
+  percentBadge: {
+    minWidth: 54,
+    height: 34,
+    borderRadius: 17,
+    paddingHorizontal: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
   goalProgressInfo: {
     marginTop: 16,
   },
+
   progressBar: {
     height: 9,
     borderRadius: 999,
     marginTop: 10,
   },
+
   goalActions: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 14,
-    gap: 4,
+    marginTop: 16,
+    gap: 10,
   },
-  smallButton: {
+
+  quickActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+
+  quickButton: {
     borderRadius: 14,
+    borderWidth: 1,
   },
-  actionButton: {
-    borderRadius: 14,
+
+  completeButton: {
+    flex: 1,
+    borderRadius: 15,
   },
-  fab: {
-    position: "absolute",
-    right: 20,
-    bottom: 94,
-    borderRadius: 18,
+
+  goalButtonContent: {
+    height: 42,
   },
+
+  shareButton: {
+    borderRadius: 20,
+    borderWidth: 1,
+    overflow: "hidden",
+    marginTop: 16,
+  },
+
+  shareButtonContent: {
+    minHeight: 62,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  shareIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+
+  shareIcon: {
+    margin: 0,
+  },
+
+  shareTextBox: {
+    flex: 1,
+  },
+
+  shareArrow: {
+    margin: 0,
+  },
+
+  secondaryActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 8,
+    marginTop: 12,
+  },
+
+  iconActionButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    margin: 0,
+  },
+
+  premiumDialog: {
+    borderRadius: 30,
+    overflow: "hidden",
+    marginHorizontal: 18,
+  },
+
+  dialogTopContent: {
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 12,
+    alignItems: "center",
+  },
+
+  dialogHeaderIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+
+  dialogHeaderIconButton: {
+    margin: 0,
+  },
+
+  goalDialogScrollArea: {
+    paddingHorizontal: 0,
+    maxHeight: 430,
+  },
+
+  shareDialogScrollArea: {
+    paddingHorizontal: 0,
+    maxHeight: 330,
+  },
+
   dialogContent: {
     paddingHorizontal: 24,
-    paddingTop: 8,
-    paddingBottom: 8,
+    paddingTop: 10,
+    paddingBottom: 26,
   },
+
   input: {
     marginBottom: 14,
   },
-  segmented: {
+
+  formSection: {
     marginBottom: 14,
   },
+
+  typeGrid: {
+    gap: 10,
+  },
+
+  typeOption: {
+    borderRadius: 20,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+
+  typeOptionContent: {
+    minHeight: 62,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  typeIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+
+  typeIcon: {
+    margin: 0,
+  },
+
+  typeTextBox: {
+    flex: 1,
+  },
+
+  typeSelectedBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
+  },
+
+  typeSelectedIcon: {
+    margin: 0,
+  },
+
   formGrid: {
     flexDirection: "row",
     gap: 10,
     marginBottom: 14,
   },
+
   formInput: {
     flex: 1,
   },
+
+  dialogActionsCustom: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 24,
+  },
+
+  dialogActionButton: {
+    flex: 1,
+    borderRadius: 16,
+  },
+
+  dialogActionContent: {
+    height: 48,
+  },
+
+  deleteDialogContent: {
+    paddingHorizontal: 24,
+    paddingTop: 28,
+    paddingBottom: 24,
+    alignItems: "center",
+  },
+
+  deleteIconBox: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 18,
+  },
+
+  deleteIcon: {
+    margin: 0,
+  },
+
+  deletePreview: {
+    width: "100%",
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 16,
+    marginTop: 18,
+    alignItems: "center",
+  },
+
+  deleteActions: {
+    flexDirection: "row",
+    width: "100%",
+    gap: 10,
+    marginTop: 22,
+  },
+
+  deleteActionButton: {
+    flex: 1,
+    borderRadius: 16,
+  },
+
   previewBox: {
-    borderRadius: 18,
+    borderRadius: 20,
     padding: 14,
     marginTop: 14,
+    borderWidth: 1,
+  },
+
+  previewHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  previewIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+
+  previewIcon: {
+    margin: 0,
   },
 });

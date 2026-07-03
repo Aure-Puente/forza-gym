@@ -1,3 +1,4 @@
+//Importaciones:
 import React, { useCallback, useMemo, useState } from "react";
 import {
   Image,
@@ -31,6 +32,8 @@ import {
 
 import { getTrainingDays } from "../services/trainingDaysService";
 import { getPosts } from "../services/postsService";
+
+import { getCurrentWeekWorkoutStats } from "../services/workoutSessionsService";
 
 const formatNumber = (value) => {
   return new Intl.NumberFormat("es-AR").format(Number(value) || 0);
@@ -81,6 +84,15 @@ const getGreeting = () => {
   if (hour < 19) return "Buenas tardes";
 
   return "Buenas noches";
+};
+
+const getGreetingIcon = () => {
+  const hour = new Date().getHours();
+
+  if (hour < 12) return "weather-sunny";
+  if (hour < 19) return "white-balance-sunny";
+
+  return "weather-night";
 };
 
 const getInitial = (name) => {
@@ -152,6 +164,7 @@ export default function HomeScreen({ navigation }) {
 
   const [sessions, setSessions] = useState([]);
   const [trainingDays, setTrainingDays] = useState([]);
+  const [weeklyStats, setWeeklyStats] = useState(null);
   const [recentSocialPosts, setRecentSocialPosts] = useState([]);
 
   const [loading, setLoading] = useState(true);
@@ -160,7 +173,30 @@ export default function HomeScreen({ navigation }) {
   const displayName = userProfile?.name || user?.displayName || "Usuario Forte";
   const photoURL = userProfile?.photoURL || user?.photoURL || null;
 
-  const weeklyGoalDays = Math.max(1, trainingDays.length || 1);
+  const firstName = String(displayName || "Usuario").split(" ")[0];
+
+  const weeklyGoalDays = Math.max(
+    1,
+    Number(weeklyStats?.weeklyGoal) || trainingDays.length || 1
+  );
+
+  const softPrimary =
+    theme.custom?.softPrimary ||
+    (theme.dark ? "rgba(37, 99, 235, 0.18)" : "rgba(37, 99, 235, 0.1)");
+
+  const premiumSurface = theme.dark
+    ? "rgba(255,255,255,0.045)"
+    : "rgba(255,255,255,0.92)";
+
+  const premiumBorder = theme.dark
+    ? "rgba(255,255,255,0.09)"
+    : "rgba(15,23,42,0.08)";
+
+  const mutedSurface = theme.dark
+    ? "rgba(255,255,255,0.055)"
+    : "rgba(15,23,42,0.035)";
+
+  const successColor = theme.dark ? "#86EFAC" : "#15803D";
 
   const stats = useMemo(() => {
     return buildRecordStats({
@@ -168,6 +204,58 @@ export default function HomeScreen({ navigation }) {
       weeklyGoalDays,
     });
   }, [sessions, weeklyGoalDays]);
+
+  const weeklyView = useMemo(() => {
+    const trainedDaysCount =
+      Number(weeklyStats?.trainedDaysCount) ||
+      Number(stats?.weeklyTrainedDays) ||
+      0;
+
+    const goal =
+      Number(weeklyStats?.weeklyGoal) ||
+      Number(stats?.weeklyGoalDays) ||
+      weeklyGoalDays;
+
+    const progressPercent =
+      weeklyStats?.progressPercent !== undefined
+        ? Number(weeklyStats.progressPercent) || 0
+        : Math.min(100, Math.round((trainedDaysCount / goal) * 100));
+
+    const completed = trainedDaysCount >= goal;
+
+    let message = "Todavía no registraste entrenamientos esta semana.";
+
+    if (completed) {
+      message = "Semana completada. Buen trabajo, seguí manteniendo el ritmo.";
+    } else if (trainedDaysCount > 0) {
+      message = `Ya empezaste la semana. Te faltan ${Math.max(
+        0,
+        goal - trainedDaysCount
+      )} día/s para cumplirla.`;
+    } else if (!stats?.totalWorkouts) {
+      message = "Armá tu rutina y empezá a registrar tus entrenamientos.";
+    }
+
+    return {
+      trainedDaysCount,
+      goal,
+      progressPercent,
+      completed,
+      message,
+      weeklyVolume:
+        Number(weeklyStats?.totalVolume) || Number(stats?.weeklyVolume) || 0,
+      weeklyCompletedExercises:
+        Number(weeklyStats?.completedExercises) ||
+        Number(stats?.weeklyCompletedExercises) ||
+        0,
+      weeklyDurationSeconds:
+        Number(weeklyStats?.durationSeconds) ||
+        Number(stats?.weeklyDurationSeconds) ||
+        0,
+      sessionsCount:
+        Number(weeklyStats?.sessionsCount) || Number(stats?.weeklyWorkouts) || 0,
+    };
+  }, [weeklyStats, stats, weeklyGoalDays]);
 
   const lastSession = useMemo(() => {
     return stats?.parsedSessions?.[0] || null;
@@ -194,6 +282,10 @@ export default function HomeScreen({ navigation }) {
     return improved[0] || progress[0];
   }, [stats?.exerciseProgress]);
 
+  const weeklySubtitle = useMemo(() => {
+    return weeklyView.message;
+  }, [weeklyView.message]);
+
   const loadData = useCallback(async () => {
     try {
       if (!user?.uid) return;
@@ -211,12 +303,22 @@ export default function HomeScreen({ navigation }) {
           }),
         ]);
 
+      const safeTrainingDays = Array.isArray(trainingDaysResponse)
+        ? trainingDaysResponse
+        : [];
+
+      const safeWeeklyGoal = Math.max(1, safeTrainingDays.length || 1);
+
+      const weekStatsResponse = await getCurrentWeekWorkoutStats({
+        uid: user.uid,
+        weeklyGoal: safeWeeklyGoal,
+      });
+
       const safePosts = Array.isArray(postsResponse) ? postsResponse : [];
 
       setSessions(Array.isArray(sessionsResponse) ? sessionsResponse : []);
-      setTrainingDays(
-        Array.isArray(trainingDaysResponse) ? trainingDaysResponse : []
-      );
+      setTrainingDays(safeTrainingDays);
+      setWeeklyStats(weekStatsResponse || null);
       setRecentSocialPosts(
         safePosts.filter((post) => post.userId !== user.uid).slice(0, 2)
       );
@@ -269,12 +371,8 @@ export default function HomeScreen({ navigation }) {
         style={[
           styles.quickAction,
           {
-            backgroundColor: featured
-              ? theme.custom.softPrimary
-              : theme.colors.surface,
-            borderColor: featured
-              ? theme.colors.primary
-              : theme.colors.outlineVariant,
+            backgroundColor: featured ? softPrimary : mutedSurface,
+            borderColor: featured ? theme.colors.primary : premiumBorder,
           },
         ]}
       >
@@ -285,7 +383,8 @@ export default function HomeScreen({ navigation }) {
               {
                 backgroundColor: featured
                   ? theme.colors.primary
-                  : theme.colors.surfaceVariant,
+                  : theme.colors.surface,
+                borderColor: featured ? theme.colors.primary : premiumBorder,
               },
             ]}
           >
@@ -322,6 +421,15 @@ export default function HomeScreen({ navigation }) {
               {subtitle}
             </Text>
           </View>
+
+          <IconButton
+            icon="chevron-right"
+            size={21}
+            iconColor={
+              featured ? theme.colors.primary : theme.colors.onSurfaceVariant
+            }
+            style={styles.quickArrow}
+          />
         </View>
       </TouchableRipple>
     );
@@ -338,8 +446,8 @@ export default function HomeScreen({ navigation }) {
         style={[
           styles.socialPreviewItem,
           {
-            backgroundColor: theme.colors.surfaceVariant,
-            borderColor: theme.colors.outlineVariant,
+            backgroundColor: mutedSurface,
+            borderColor: premiumBorder,
           },
         ]}
       >
@@ -351,8 +459,9 @@ export default function HomeScreen({ navigation }) {
               <Avatar.Text
                 size={42}
                 label={getInitial(post.userName)}
-                style={{ backgroundColor: theme.custom.softPrimary }}
+                style={{ backgroundColor: softPrimary }}
                 color={theme.colors.primary}
+                labelStyle={{ fontWeight: "900" }}
               />
             )}
 
@@ -380,12 +489,28 @@ export default function HomeScreen({ navigation }) {
               </Text>
             </View>
 
-            {!!post.imageUrl && (
+            {!!post.imageUrl ? (
               <Image
                 source={{ uri: post.imageUrl }}
                 style={styles.socialPreviewImage}
                 resizeMode="cover"
               />
+            ) : (
+              <View
+                style={[
+                  styles.socialPreviewMiniIcon,
+                  {
+                    backgroundColor: softPrimary,
+                  },
+                ]}
+              >
+                <IconButton
+                  icon={typeData.icon}
+                  size={18}
+                  iconColor={theme.colors.primary}
+                  style={styles.socialPreviewIcon}
+                />
+              </View>
             )}
           </View>
 
@@ -405,7 +530,7 @@ export default function HomeScreen({ navigation }) {
             <Chip
               compact
               icon={typeData.icon}
-              style={{ backgroundColor: theme.custom.softPrimary }}
+              style={{ backgroundColor: softPrimary }}
               textStyle={{
                 color: theme.colors.primary,
                 fontWeight: "900",
@@ -433,38 +558,172 @@ export default function HomeScreen({ navigation }) {
     <ScrollView
       style={{ backgroundColor: theme.colors.background }}
       contentContainerStyle={styles.container}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
       }
     >
-      <View style={styles.header}>
-        <View style={styles.headerTextBox}>
-          <Text
-            variant="bodyMedium"
-            style={{ color: theme.colors.onSurfaceVariant }}
-          >
-            {getGreeting()},
-          </Text>
+      <View
+        style={[
+          styles.headerCard,
+          {
+            backgroundColor: premiumSurface,
+            borderColor: premiumBorder,
+          },
+        ]}
+      >
+        <View style={styles.headerTopRow}>
+          <View style={styles.headerTextBox}>
+            <View
+              style={[
+                styles.greetingPill,
+                {
+                  backgroundColor: softPrimary,
+                  borderColor: premiumBorder,
+                },
+              ]}
+            >
+              <IconButton
+                icon={getGreetingIcon()}
+                size={15}
+                iconColor={theme.colors.primary}
+                style={styles.greetingIcon}
+              />
 
-          <Text
-            variant="headlineMedium"
-            numberOfLines={1}
-            style={[styles.title, { color: theme.colors.onBackground }]}
+              <Text
+                variant="labelSmall"
+                style={{
+                  color: theme.colors.primary,
+                  fontWeight: "900",
+                  letterSpacing: 0.6,
+                }}
+              >
+                {getGreeting().toUpperCase()}
+              </Text>
+            </View>
+
+            <Text
+              variant="headlineMedium"
+              numberOfLines={1}
+              style={[styles.title, { color: theme.colors.onSurface }]}
+            >
+              {firstName}
+            </Text>
+
+            <Text
+              variant="bodyMedium"
+              style={[
+                styles.headerSubtitle,
+                { color: theme.colors.onSurfaceVariant },
+              ]}
+            >
+              {weeklySubtitle}
+            </Text>
+          </View>
+
+          <TouchableRipple
+            borderless
+            onPress={() => goToTab("Perfil")}
+            style={styles.avatarTouchable}
           >
-            {displayName}
-          </Text>
+            <View
+              style={[
+                styles.avatarRing,
+                {
+                  backgroundColor: softPrimary,
+                  borderColor: theme.colors.primary,
+                },
+              ]}
+            >
+              {photoURL ? (
+                <Avatar.Image size={74} source={{ uri: photoURL }} />
+              ) : (
+                <Avatar.Text
+                  size={74}
+                  label={getInitial(displayName)}
+                  style={{ backgroundColor: "transparent" }}
+                  color={theme.colors.primary}
+                  labelStyle={{ fontWeight: "900" }}
+                />
+              )}
+
+              <View
+                style={[
+                  styles.avatarStatus,
+                  {
+                    backgroundColor: successColor,
+                    borderColor: theme.colors.surface,
+                  },
+                ]}
+              />
+            </View>
+          </TouchableRipple>
         </View>
 
-        {photoURL ? (
-          <Avatar.Image size={58} source={{ uri: photoURL }} />
-        ) : (
-          <Avatar.Text
-            size={58}
-            label={getInitial(displayName)}
-            style={{ backgroundColor: theme.custom.softPrimary }}
-            color={theme.colors.primary}
-          />
-        )}
+        <View style={styles.headerBottomRow}>
+          <View
+            style={[
+              styles.headerMiniStat,
+              {
+                backgroundColor: mutedSurface,
+                borderColor: premiumBorder,
+              },
+            ]}
+          >
+            <Text
+              variant="labelSmall"
+              style={{
+                color: theme.colors.onSurfaceVariant,
+                fontWeight: "800",
+              }}
+            >
+              ESTA SEMANA
+            </Text>
+
+            <Text
+              variant="titleMedium"
+              style={{
+                color: theme.colors.primary,
+                fontWeight: "900",
+                marginTop: 2,
+              }}
+            >
+              {weeklyView.trainedDaysCount}/{weeklyView.goal}
+            </Text>
+          </View>
+
+          <View
+            style={[
+              styles.headerMiniStat,
+              {
+                backgroundColor: mutedSurface,
+                borderColor: premiumBorder,
+              },
+            ]}
+          >
+            <Text
+              variant="labelSmall"
+              style={{
+                color: theme.colors.onSurfaceVariant,
+                fontWeight: "800",
+              }}
+            >
+              VOLUMEN
+            </Text>
+
+            <Text
+              variant="titleMedium"
+              style={{
+                color: theme.colors.primary,
+                fontWeight: "900",
+                marginTop: 2,
+              }}
+            >
+              {formatNumber(weeklyView.weeklyVolume)} kg
+            </Text>
+          </View>
+        </View>
       </View>
 
       {loading ? (
@@ -488,7 +747,10 @@ export default function HomeScreen({ navigation }) {
               mode="contained"
               style={[
                 styles.socialCard,
-                { backgroundColor: theme.colors.surface },
+                {
+                  backgroundColor: premiumSurface,
+                  borderColor: premiumBorder,
+                },
               ]}
             >
               <Card.Content>
@@ -499,6 +761,7 @@ export default function HomeScreen({ navigation }) {
                       style={{
                         color: theme.colors.onSurface,
                         fontWeight: "900",
+                        letterSpacing: -0.3,
                       }}
                     >
                       Actividad social
@@ -538,7 +801,8 @@ export default function HomeScreen({ navigation }) {
             style={[
               styles.heroCard,
               {
-                backgroundColor: theme.colors.surface,
+                backgroundColor: premiumSurface,
+                borderColor: premiumBorder,
               },
             ]}
           >
@@ -547,10 +811,10 @@ export default function HomeScreen({ navigation }) {
                 <View style={styles.heroInfo}>
                   <Chip
                     compact
-                    icon="fire"
+                    icon={weeklyView.completed ? "check-circle" : "fire"}
                     style={{
                       alignSelf: "flex-start",
-                      backgroundColor: theme.custom.softPrimary,
+                      backgroundColor: softPrimary,
                     }}
                     textStyle={{
                       color: theme.colors.primary,
@@ -568,7 +832,7 @@ export default function HomeScreen({ navigation }) {
                       marginTop: 14,
                     }}
                   >
-                    {stats.weeklyTrainedDays}/{stats.weeklyGoalDays} días
+                    {weeklyView.trainedDaysCount}/{weeklyView.goal} días
                   </Text>
 
                   <Text
@@ -579,35 +843,75 @@ export default function HomeScreen({ navigation }) {
                       lineHeight: 21,
                     }}
                   >
-                    {stats.weeklyMessage}
+                    {weeklyView.message}
                   </Text>
                 </View>
 
-                <ProgressDonut
-                  progress={stats.weeklyProgress}
-                  size={118}
-                  strokeWidth={12}
-                  label={`${stats.weeklyProgress}%`}
-                  subLabel="Semana"
-                />
+                <View style={styles.heroDonutBox}>
+                  <ProgressDonut
+                    progress={weeklyView.progressPercent}
+                    size={118}
+                    strokeWidth={12}
+                    label=""
+                    subLabel=""
+                  />
+
+                  <View style={styles.heroDonutCenter}>
+                    <Text
+                      variant="headlineSmall"
+                      style={{
+                        color: theme.colors.primary,
+                        fontWeight: "900",
+                        textAlign: "center",
+                        includeFontPadding: false,
+                        lineHeight: 29,
+                      }}
+                    >
+                      {weeklyView.progressPercent}%
+                    </Text>
+
+                    <Text
+                      variant="labelSmall"
+                      style={{
+                        color: theme.colors.onSurfaceVariant,
+                        fontWeight: "800",
+                        includeFontPadding: false,
+                      }}
+                    >
+                      Semana
+                    </Text>
+                  </View>
+                </View>
               </View>
 
               <ProgressBar
-                progress={stats.weeklyProgress / 100}
+                progress={weeklyView.progressPercent / 100}
                 color={theme.colors.primary}
                 style={[
                   styles.heroProgress,
-                  { backgroundColor: theme.colors.surfaceVariant },
+                  {
+                    backgroundColor: theme.dark
+                      ? "rgba(255,255,255,0.08)"
+                      : "rgba(15,23,42,0.08)",
+                  },
                 ]}
               />
 
               <View style={styles.heroStats}>
-                <View style={styles.heroStatItem}>
+                <View
+                  style={[
+                    styles.heroStatItem,
+                    {
+                      backgroundColor: mutedSurface,
+                      borderColor: premiumBorder,
+                    },
+                  ]}
+                >
                   <Text
                     variant="titleMedium"
                     style={{ color: theme.colors.primary, fontWeight: "900" }}
                   >
-                    {formatNumber(stats.weeklyVolume)}
+                    {formatNumber(weeklyView.weeklyVolume)}
                   </Text>
 
                   <Text
@@ -618,12 +922,20 @@ export default function HomeScreen({ navigation }) {
                   </Text>
                 </View>
 
-                <View style={styles.heroStatItem}>
+                <View
+                  style={[
+                    styles.heroStatItem,
+                    {
+                      backgroundColor: mutedSurface,
+                      borderColor: premiumBorder,
+                    },
+                  ]}
+                >
                   <Text
                     variant="titleMedium"
                     style={{ color: theme.colors.primary, fontWeight: "900" }}
                   >
-                    {stats.weeklyCompletedExercises || 0}
+                    {weeklyView.weeklyCompletedExercises || 0}
                   </Text>
 
                   <Text
@@ -634,12 +946,20 @@ export default function HomeScreen({ navigation }) {
                   </Text>
                 </View>
 
-                <View style={styles.heroStatItem}>
+                <View
+                  style={[
+                    styles.heroStatItem,
+                    {
+                      backgroundColor: mutedSurface,
+                      borderColor: premiumBorder,
+                    },
+                  ]}
+                >
                   <Text
                     variant="titleMedium"
                     style={{ color: theme.colors.primary, fontWeight: "900" }}
                   >
-                    {formatDuration(stats.weeklyDurationSeconds)}
+                    {formatDuration(weeklyView.weeklyDurationSeconds)}
                   </Text>
 
                   <Text
@@ -655,7 +975,13 @@ export default function HomeScreen({ navigation }) {
 
           <Card
             mode="contained"
-            style={[styles.card, { backgroundColor: theme.colors.surface }]}
+            style={[
+              styles.card,
+              {
+                backgroundColor: premiumSurface,
+                borderColor: premiumBorder,
+              },
+            ]}
           >
             <Card.Content>
               <View style={styles.nextHeader}>
@@ -665,6 +991,7 @@ export default function HomeScreen({ navigation }) {
                     style={{
                       color: theme.colors.onSurface,
                       fontWeight: "900",
+                      letterSpacing: -0.3,
                     }}
                   >
                     Próximo entrenamiento
@@ -683,12 +1010,7 @@ export default function HomeScreen({ navigation }) {
                   </Text>
                 </View>
 
-                <View
-                  style={[
-                    styles.nextIcon,
-                    { backgroundColor: theme.custom.softPrimary },
-                  ]}
-                >
+                <View style={[styles.nextIcon, { backgroundColor: softPrimary }]}>
                   <Text
                     variant="headlineSmall"
                     style={{
@@ -704,7 +1026,10 @@ export default function HomeScreen({ navigation }) {
               <View
                 style={[
                   styles.nextBox,
-                  { backgroundColor: theme.colors.surfaceVariant },
+                  {
+                    backgroundColor: mutedSurface,
+                    borderColor: premiumBorder,
+                  },
                 ]}
               >
                 <View style={styles.nextBoxText}>
@@ -749,7 +1074,10 @@ export default function HomeScreen({ navigation }) {
               mode="contained"
               style={[
                 styles.smallStatCard,
-                { backgroundColor: theme.colors.surface },
+                {
+                  backgroundColor: premiumSurface,
+                  borderColor: premiumBorder,
+                },
               ]}
             >
               <Card.Content>
@@ -773,7 +1101,10 @@ export default function HomeScreen({ navigation }) {
               mode="contained"
               style={[
                 styles.smallStatCard,
-                { backgroundColor: theme.colors.surface },
+                {
+                  backgroundColor: premiumSurface,
+                  borderColor: premiumBorder,
+                },
               ]}
             >
               <Card.Content>
@@ -796,7 +1127,13 @@ export default function HomeScreen({ navigation }) {
 
           <Card
             mode="contained"
-            style={[styles.card, { backgroundColor: theme.colors.surface }]}
+            style={[
+              styles.card,
+              {
+                backgroundColor: premiumSurface,
+                borderColor: premiumBorder,
+              },
+            ]}
           >
             <Card.Content>
               <Text
@@ -805,6 +1142,7 @@ export default function HomeScreen({ navigation }) {
                   color: theme.colors.onSurface,
                   fontWeight: "900",
                   marginBottom: 12,
+                  letterSpacing: -0.3,
                 }}
               >
                 Última actividad
@@ -814,7 +1152,10 @@ export default function HomeScreen({ navigation }) {
                 <View
                   style={[
                     styles.lastSessionBox,
-                    { backgroundColor: theme.colors.surfaceVariant },
+                    {
+                      backgroundColor: mutedSurface,
+                      borderColor: premiumBorder,
+                    },
                   ]}
                 >
                   <View style={styles.lastSessionLeft}>
@@ -857,7 +1198,15 @@ export default function HomeScreen({ navigation }) {
                   </View>
                 </View>
               ) : (
-                <View style={styles.emptyActivityBox}>
+                <View
+                  style={[
+                    styles.emptyActivityBox,
+                    {
+                      backgroundColor: mutedSurface,
+                      borderColor: premiumBorder,
+                    },
+                  ]}
+                >
                   <Text
                     variant="titleMedium"
                     style={{
@@ -888,7 +1237,13 @@ export default function HomeScreen({ navigation }) {
           {!!bestExercise && (
             <Card
               mode="contained"
-              style={[styles.card, { backgroundColor: theme.colors.surface }]}
+              style={[
+                styles.card,
+                {
+                  backgroundColor: premiumSurface,
+                  borderColor: premiumBorder,
+                },
+              ]}
             >
               <Card.Content>
                 <Text
@@ -897,6 +1252,7 @@ export default function HomeScreen({ navigation }) {
                     color: theme.colors.onSurface,
                     fontWeight: "900",
                     marginBottom: 12,
+                    letterSpacing: -0.3,
                   }}
                 >
                   Ejercicio destacado
@@ -905,7 +1261,10 @@ export default function HomeScreen({ navigation }) {
                 <View
                   style={[
                     styles.featuredExerciseBox,
-                    { backgroundColor: theme.custom.softPrimary },
+                    {
+                      backgroundColor: softPrimary,
+                      borderColor: theme.colors.primary,
+                    },
                   ]}
                 >
                   <View style={styles.featuredExerciseText}>
@@ -952,7 +1311,13 @@ export default function HomeScreen({ navigation }) {
 
           <Card
             mode="contained"
-            style={[styles.card, { backgroundColor: theme.colors.surface }]}
+            style={[
+              styles.card,
+              {
+                backgroundColor: premiumSurface,
+                borderColor: premiumBorder,
+              },
+            ]}
           >
             <Card.Content>
               <Text
@@ -961,6 +1326,7 @@ export default function HomeScreen({ navigation }) {
                   color: theme.colors.onSurface,
                   fontWeight: "900",
                   marginBottom: 14,
+                  letterSpacing: -0.3,
                 }}
               >
                 Accesos rápidos
@@ -1007,66 +1373,158 @@ export default function HomeScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     padding: 20,
-    paddingTop: 62,
+    paddingTop: 58,
     paddingBottom: 120,
   },
-  header: {
+
+  headerCard: {
+    borderRadius: 32,
+    borderWidth: 1,
+    padding: 18,
+    marginBottom: 18,
+  },
+
+  headerTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 20,
   },
+
   headerTextBox: {
     flex: 1,
-    marginRight: 14,
+    marginRight: 16,
   },
+
+  greetingPill: {
+    alignSelf: "flex-start",
+    minHeight: 30,
+    paddingRight: 12,
+    paddingLeft: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+
+  greetingIcon: {
+    width: 26,
+    height: 26,
+    margin: 0,
+  },
+
   title: {
     fontWeight: "900",
-    letterSpacing: -0.6,
+    letterSpacing: -0.7,
   },
+
+  headerSubtitle: {
+    marginTop: 6,
+    lineHeight: 20,
+  },
+
+  avatarTouchable: {
+    borderRadius: 999,
+  },
+
+  avatarRing: {
+    width: 86,
+    height: 86,
+    borderRadius: 43,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  avatarStatus: {
+    position: "absolute",
+    right: 5,
+    bottom: 6,
+    width: 17,
+    height: 17,
+    borderRadius: 8.5,
+    borderWidth: 2,
+  },
+
+  headerBottomRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 16,
+  },
+
+  headerMiniStat: {
+    flex: 1,
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 12,
+  },
+
   loadingBox: {
     minHeight: 420,
     alignItems: "center",
     justifyContent: "center",
   },
+
   socialCard: {
     borderRadius: 28,
     marginBottom: 16,
+    borderWidth: 1,
   },
+
   socialHeader: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 14,
   },
+
   socialHeaderText: {
     flex: 1,
     marginRight: 10,
   },
+
   socialPreviewList: {
     gap: 10,
   },
+
   socialPreviewItem: {
     borderRadius: 22,
     borderWidth: 1,
     overflow: "hidden",
   },
+
   socialPreviewContent: {
     padding: 14,
   },
+
   socialPreviewTop: {
     flexDirection: "row",
     alignItems: "center",
   },
+
   socialPreviewUserBox: {
     flex: 1,
     marginLeft: 11,
     marginRight: 10,
   },
+
   socialPreviewImage: {
     width: 44,
     height: 44,
     borderRadius: 14,
     backgroundColor: "#00000010",
   },
+
+  socialPreviewMiniIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  socialPreviewIcon: {
+    margin: 0,
+  },
+
   socialPreviewBottom: {
     marginTop: 12,
     flexDirection: "row",
@@ -1074,44 +1532,79 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 10,
   },
+
   heroCard: {
     borderRadius: 32,
     marginBottom: 16,
+    borderWidth: 1,
   },
+
   heroTop: {
     flexDirection: "row",
     alignItems: "center",
   },
+
   heroInfo: {
     flex: 1,
     marginRight: 14,
   },
+
+  heroDonutBox: {
+    width: 118,
+    height: 118,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+
+  heroDonutCenter: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 2,
+  },
+
   heroProgress: {
     height: 10,
     borderRadius: 999,
     marginTop: 18,
   },
+
   heroStats: {
     flexDirection: "row",
     marginTop: 18,
     gap: 10,
   },
+
   heroStatItem: {
     flex: 1,
     alignItems: "center",
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
   },
+
   card: {
     borderRadius: 28,
     marginBottom: 16,
+    borderWidth: 1,
   },
+
   nextHeader: {
     flexDirection: "row",
     alignItems: "center",
   },
+
   nextTextBox: {
     flex: 1,
     marginRight: 14,
   },
+
   nextIcon: {
     width: 52,
     height: 52,
@@ -1119,81 +1612,110 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   nextBox: {
     borderRadius: 22,
+    borderWidth: 1,
     padding: 14,
     marginTop: 16,
     flexDirection: "row",
     alignItems: "center",
   },
+
   nextBoxText: {
     flex: 1,
     marginRight: 12,
   },
+
   nextButton: {
     borderRadius: 16,
   },
+
   grid: {
     flexDirection: "row",
     gap: 14,
     marginBottom: 16,
   },
+
   smallStatCard: {
     flex: 1,
     borderRadius: 24,
+    borderWidth: 1,
   },
+
   lastSessionBox: {
     borderRadius: 22,
+    borderWidth: 1,
     padding: 14,
     flexDirection: "row",
     alignItems: "center",
   },
+
   lastSessionLeft: {
     flex: 1,
     marginRight: 12,
   },
+
   lastSessionRight: {
     alignItems: "flex-end",
   },
+
   emptyActivityBox: {
     paddingVertical: 22,
+    paddingHorizontal: 16,
+    borderRadius: 22,
+    borderWidth: 1,
   },
+
   featuredExerciseBox: {
     borderRadius: 22,
+    borderWidth: 1,
     padding: 14,
     flexDirection: "row",
     alignItems: "center",
   },
+
   featuredExerciseText: {
     flex: 1,
     marginRight: 12,
   },
+
   quickGrid: {
     gap: 10,
   },
+
   quickAction: {
     borderRadius: 22,
     borderWidth: 1,
     overflow: "hidden",
   },
+
   quickActionContent: {
     minHeight: 76,
     padding: 14,
     flexDirection: "row",
     alignItems: "center",
   },
+
   quickIconBox: {
     width: 46,
     height: 46,
     borderRadius: 23,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
   },
+
   quickIcon: {
     margin: 0,
   },
+
   quickTextBox: {
     flex: 1,
+  },
+
+  quickArrow: {
+    margin: 0,
   },
 });

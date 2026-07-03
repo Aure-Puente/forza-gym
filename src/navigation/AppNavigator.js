@@ -1,13 +1,12 @@
 //Importaciones:
-import React, { useCallback, useState } from "react";
-import { View, StyleSheet } from "react-native";
-import { ActivityIndicator, Text, useTheme } from "react-native-paper";
+import React, { useCallback, useEffect, useState } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import TabNavigator from "./TabNavigator";
 import LoginScreen from "../screens/LoginScreen";
 import RegisterScreen from "../screens/RegisterScreen";
 import WorkoutDayScreen from "../screens/WorkoutDayScreen";
 import GoalsScreen from "../screens/GoalsScreen";
+import SplashScreen from "../screens/SplashScreen";
 import { useAuth } from "../context/AuthContext";
 
 //JS:
@@ -19,10 +18,18 @@ export default function AppNavigator({
     colorPreset,
     setColorPreset,
     }) {
-    const theme = useTheme();
     const { loading, isAuthenticated } = useAuth();
 
+    const [showSplash, setShowSplash] = useState(true);
     const [unreadSocialCount, setUnreadSocialCount] = useState(0);
+
+    useEffect(() => {
+        const timer = setTimeout(() => {
+        setShowSplash(false);
+        }, 2000);
+
+        return () => clearTimeout(timer);
+    }, []);
 
     const updateUnreadSocialCount = useCallback((count) => {
         const safeCount = Math.max(0, Number(count) || 0);
@@ -34,27 +41,8 @@ export default function AppNavigator({
         setUnreadSocialCount(0);
     }, []);
 
-    if (loading) {
-        return (
-        <View
-            style={[
-            styles.loadingContainer,
-            { backgroundColor: theme.colors.background },
-            ]}
-        >
-            <ActivityIndicator size="large" />
-
-            <Text
-            variant="bodyMedium"
-            style={{
-                marginTop: 14,
-                color: theme.colors.onSurfaceVariant,
-            }}
-            >
-            Cargando Forte...
-            </Text>
-        </View>
-        );
+    if (showSplash || loading) {
+        return <SplashScreen />;
     }
 
     return (
@@ -66,6 +54,7 @@ export default function AppNavigator({
         {!isAuthenticated ? (
             <>
             <Stack.Screen name="Login" component={LoginScreen} />
+
             <Stack.Screen name="Register" component={RegisterScreen} />
             </>
         ) : (
@@ -86,18 +75,10 @@ export default function AppNavigator({
             </Stack.Screen>
 
             <Stack.Screen name="WorkoutDay" component={WorkoutDayScreen} />
+
             <Stack.Screen name="Goals" component={GoalsScreen} />
             </>
         )}
         </Stack.Navigator>
     );
-    }
-
-    const styles = StyleSheet.create({
-    loadingContainer: {
-        flex: 1,
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-    },
-});
+}

@@ -1,3 +1,4 @@
+//Importaciones:
 import React, { useState } from "react";
 import {
   Image,
@@ -11,42 +12,54 @@ import {
   Button,
   Card,
   HelperText,
+  IconButton,
   Text,
   TextInput,
   useTheme,
 } from "react-native-paper";
-
 import { useAuth } from "../context/AuthContext";
 
+//JS:
 // Assets:
-// Si tus logos están en otra carpeta, solo cambiá estas dos rutas.
 const logoLight = require("../../assets/logo-light.png");
 const logoDark = require("../../assets/logo-dark.png");
 
-// Colores fijos de marca para Login:
-// Esta pantalla siempre mantiene identidad verde, aunque el usuario cambie el color de la app.
 const BRAND = {
   light: {
     primary: "#1F7A4D",
+    primaryStrong: "#16643D",
+    primarySoft: "rgba(31, 122, 77, 0.10)",
     onPrimary: "#FFFFFF",
     background: "#F5F7FA",
     surface: "#FFFFFF",
     surfaceSoft: "#EEF8F2",
     text: "#0F172A",
     muted: "#64748B",
+    subtle: "#94A3B8",
     outline: "#D6DEE8",
-    shadow: "rgba(15, 23, 42, 0.10)",
+    outlineSoft: "rgba(15, 23, 42, 0.08)",
+    inputBg: "#FFFFFF",
+    errorBg: "#FEF2F2",
+    errorText: "#B91C1C",
+    shadow: "rgba(15, 23, 42, 0.13)",
   },
   dark: {
     primary: "#7CFF9B",
+    primaryStrong: "#A7FFBA",
+    primarySoft: "rgba(124, 255, 155, 0.13)",
     onPrimary: "#07130B",
-    background: "#070A0F",
-    surface: "#10151F",
-    surfaceSoft: "#17251E",
+    background: "#030412",
+    surface: "#151620",
+    surfaceSoft: "#173020",
     text: "#F8FAFC",
     muted: "#A7B0C2",
+    subtle: "#718096",
     outline: "#263244",
-    shadow: "rgba(0, 0, 0, 0.35)",
+    outlineSoft: "rgba(255, 255, 255, 0.08)",
+    inputBg: "#151620",
+    errorBg: "rgba(248, 113, 113, 0.12)",
+    errorText: "#FCA5A5",
+    shadow: "rgba(0, 0, 0, 0.42)",
   },
 };
 
@@ -67,8 +80,18 @@ export default function LoginScreen({ navigation }) {
   const handleLogin = async () => {
     setError("");
 
+    if (!email.trim()) {
+      setError("Ingresá tu email.");
+      return;
+    }
+
+    if (!password.trim()) {
+      setError("Ingresá tu contraseña.");
+      return;
+    }
+
     const response = await login({
-      email,
+      email: email.trim(),
       password,
     });
 
@@ -80,38 +103,23 @@ export default function LoginScreen({ navigation }) {
   return (
     <KeyboardAvoidingView
       style={[styles.screen, { backgroundColor: brand.background }]}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 18 : 0}
     >
       <ScrollView
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.container}
       >
         <View style={styles.brandBox}>
-          <View
-            style={[
-              styles.logoShell,
-              {
-                backgroundColor: brand.surface,
-                borderColor: brand.outline,
-                shadowColor: brand.shadow,
-              },
-            ]}
-          >
-            <Image source={logo} style={styles.logo} resizeMode="contain" />
-          </View>
-
-          <Text
-            variant="headlineLarge"
-            style={[styles.title, { color: brand.text }]}
-          >
-            Forte
-          </Text>
+          <Image source={logo} style={styles.logo} resizeMode="contain" />
 
           <Text
             variant="bodyMedium"
             style={[styles.subtitle, { color: brand.muted }]}
           >
-            Entrená. Registrá. Evolucioná.
+            Registrá tus rutinas, seguí tus marcas y compartí tu progreso.
           </Text>
         </View>
 
@@ -121,14 +129,14 @@ export default function LoginScreen({ navigation }) {
             styles.card,
             {
               backgroundColor: brand.surface,
-              borderColor: brand.outline,
+              borderColor: brand.outlineSoft,
               shadowColor: brand.shadow,
             },
           ]}
         >
-          <Card.Content>
+          <Card.Content style={styles.cardContent}>
             <View style={styles.cardHeader}>
-              <View>
+              <View style={styles.cardHeaderText}>
                 <Text
                   variant="titleLarge"
                   style={[styles.cardTitle, { color: brand.text }]}
@@ -140,76 +148,136 @@ export default function LoginScreen({ navigation }) {
                   variant="bodySmall"
                   style={[styles.cardSubtitle, { color: brand.muted }]}
                 >
-                  Accedé a tu progreso y entrenamientos.
+                  Volvé a tu panel de entrenamiento.
                 </Text>
               </View>
 
               <View
                 style={[
-                  styles.miniBadge,
-                  { backgroundColor: brand.surfaceSoft },
+                  styles.secureBadge,
+                  {
+                    backgroundColor: brand.surfaceSoft,
+                    borderColor: brand.outlineSoft,
+                  },
                 ]}
               >
-                <Text
-                  variant="labelLarge"
-                  style={{ color: brand.primary, fontWeight: "900" }}
-                >
-                  Fit
-                </Text>
+                <IconButton
+                  icon="shield-check-outline"
+                  size={17}
+                  iconColor={brand.primary}
+                  style={styles.secureBadgeIcon}
+                />
               </View>
             </View>
 
-            <TextInput
-              mode="outlined"
-              label="Email"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={styles.input}
-              outlineColor={brand.outline}
-              activeOutlineColor={brand.primary}
-              textColor={brand.text}
-              theme={{
-                colors: {
-                  primary: brand.primary,
-                  onSurfaceVariant: brand.muted,
-                  background: brand.surface,
-                },
-              }}
-            />
+            <View style={styles.inputsBox}>
+              <TextInput
+                mode="outlined"
+                label="Email"
+                value={email}
+                onChangeText={(value) => {
+                  setEmail(value);
+                  if (error) setError("");
+                }}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: brand.inputBg,
+                  },
+                ]}
+                outlineColor={brand.outline}
+                activeOutlineColor={brand.primary}
+                textColor={brand.text}
+                left={
+                  <TextInput.Icon
+                    icon="email-outline"
+                    color={brand.muted}
+                    forceTextInputFocus={false}
+                  />
+                }
+                outlineStyle={styles.inputOutline}
+                theme={{
+                  colors: {
+                    primary: brand.primary,
+                    onSurfaceVariant: brand.muted,
+                    background: brand.inputBg,
+                  },
+                }}
+              />
 
-            <TextInput
-              mode="outlined"
-              label="Contraseña"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={secureText}
-              style={styles.input}
-              outlineColor={brand.outline}
-              activeOutlineColor={brand.primary}
-              textColor={brand.text}
-              theme={{
-                colors: {
-                  primary: brand.primary,
-                  onSurfaceVariant: brand.muted,
-                  background: brand.surface,
-                },
-              }}
-              right={
-                <TextInput.Icon
-                  icon={secureText ? "eye-outline" : "eye-off-outline"}
-                  color={brand.muted}
-                  onPress={() => setSecureText((prev) => !prev)}
-                />
-              }
-            />
+              <TextInput
+                mode="outlined"
+                label="Contraseña"
+                value={password}
+                onChangeText={(value) => {
+                  setPassword(value);
+                  if (error) setError("");
+                }}
+                secureTextEntry={secureText}
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: brand.inputBg,
+                  },
+                ]}
+                outlineColor={brand.outline}
+                activeOutlineColor={brand.primary}
+                textColor={brand.text}
+                left={
+                  <TextInput.Icon
+                    icon="lock-outline"
+                    color={brand.muted}
+                    forceTextInputFocus={false}
+                  />
+                }
+                right={
+                  <TextInput.Icon
+                    icon={secureText ? "eye-outline" : "eye-off-outline"}
+                    color={brand.muted}
+                    onPress={() => setSecureText((prev) => !prev)}
+                  />
+                }
+                outlineStyle={styles.inputOutline}
+                theme={{
+                  colors: {
+                    primary: brand.primary,
+                    onSurfaceVariant: brand.muted,
+                    background: brand.inputBg,
+                  },
+                }}
+              />
+            </View>
 
             {!!error && (
-              <HelperText type="error" visible={!!error}>
-                {error}
-              </HelperText>
+              <View
+                style={[
+                  styles.errorBox,
+                  {
+                    backgroundColor: brand.errorBg,
+                    borderColor: isDark
+                      ? "rgba(248, 113, 113, 0.18)"
+                      : "rgba(185, 28, 28, 0.12)",
+                  },
+                ]}
+              >
+                <IconButton
+                  icon="alert-circle-outline"
+                  size={18}
+                  iconColor={brand.errorText}
+                  style={styles.errorIcon}
+                />
+
+                <HelperText
+                  type="error"
+                  visible={!!error}
+                  style={[styles.errorText, { color: brand.errorText }]}
+                >
+                  {error}
+                </HelperText>
+              </View>
             )}
 
             <Button
@@ -220,29 +288,60 @@ export default function LoginScreen({ navigation }) {
               textColor={brand.onPrimary}
               style={styles.button}
               contentStyle={styles.buttonContent}
+              labelStyle={styles.buttonLabel}
               onPress={handleLogin}
             >
               Entrar
             </Button>
 
-            <Button
-              mode="text"
-              disabled={authLoading}
-              textColor={brand.primary}
-              style={styles.linkButton}
-              onPress={() => navigation.navigate("Register")}
-            >
-              Crear cuenta
-            </Button>
+            <View style={styles.registerRow}>
+              <Text
+                variant="bodySmall"
+                style={{
+                  color: brand.muted,
+                }}
+              >
+                ¿Todavía no tenés cuenta?
+              </Text>
+
+              <Button
+                mode="text"
+                compact
+                disabled={authLoading}
+                textColor={brand.primary}
+                labelStyle={styles.registerLabel}
+                style={styles.linkButton}
+                onPress={() => navigation.navigate("Register")}
+              >
+                Crear cuenta
+              </Button>
+            </View>
           </Card.Content>
         </Card>
 
-        <Text
-          variant="bodySmall"
-          style={[styles.footerText, { color: brand.muted }]}
+        <View
+          style={[
+            styles.footerCard,
+            {
+              backgroundColor: brand.primarySoft,
+              borderColor: brand.outlineSoft,
+            },
+          ]}
         >
-          Tu entrenamiento, tus marcas y tu evolución en un solo lugar.
-        </Text>
+          <IconButton
+            icon="chart-timeline-variant"
+            size={18}
+            iconColor={brand.primary}
+            style={styles.footerIcon}
+          />
+
+          <Text
+            variant="bodySmall"
+            style={[styles.footerText, { color: brand.muted }]}
+          >
+            Tus marcas, entrenamientos y progreso en un solo lugar.
+          </Text>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -252,87 +351,163 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
   },
+
   container: {
     flexGrow: 1,
-    padding: 22,
+    paddingHorizontal: 22,
+    paddingBottom: 28,
     justifyContent: "center",
   },
+
   brandBox: {
     alignItems: "center",
-    marginBottom: 28,
-  },
-  logoShell: {
-    width: 118,
-    height: 118,
-    borderRadius: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
     marginBottom: 18,
-    elevation: 5,
-    shadowOpacity: 0.16,
-    shadowRadius: 18,
-    shadowOffset: {
-      width: 0,
-      height: 8,
-    },
   },
+
   logo: {
-    width: 82,
-    height: 82,
+    width: 325,
+    height: 200,
+    marginBottom: 0,
   },
-  title: {
-    fontWeight: "900",
-    letterSpacing: -0.8,
-  },
+
   subtitle: {
-    marginTop: 4,
     textAlign: "center",
+    lineHeight: 18,
+    maxWidth: 285,
+    fontSize: 13,
+    marginTop: -20,
   },
+
   card: {
-    borderRadius: 30,
+    borderRadius: 28,
     borderWidth: 1,
-    elevation: 4,
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
+    elevation: 5,
+    shadowOpacity: 0.14,
+    shadowRadius: 22,
     shadowOffset: {
       width: 0,
-      height: 8,
+      height: 10,
     },
   },
+
+  cardContent: {
+    paddingVertical: 20,
+  },
+
   cardHeader: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 20,
+    marginBottom: 22,
   },
+
+  cardHeaderText: {
+    flex: 1,
+    marginRight: 12,
+  },
+
   cardTitle: {
     fontWeight: "900",
+    letterSpacing: -0.3,
   },
+
   cardSubtitle: {
-    marginTop: 3,
+    marginTop: 4,
+    lineHeight: 18,
   },
-  miniBadge: {
-    marginLeft: "auto",
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
+
+  secureBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
+
+  secureBadgeIcon: {
+    margin: 0,
+  },
+
+  inputsBox: {
+    gap: 2,
+  },
+
   input: {
     marginBottom: 14,
   },
+
+  inputOutline: {
+    borderRadius: 18,
+  },
+
+  errorBox: {
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingRight: 10,
+    marginTop: -2,
+    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  errorIcon: {
+    margin: 0,
+  },
+
+  errorText: {
+    flex: 1,
+    paddingLeft: 0,
+    paddingRight: 0,
+    marginVertical: 0,
+  },
+
   button: {
-    marginTop: 8,
-    borderRadius: 17,
+    marginTop: 4,
+    borderRadius: 18,
   },
+
   buttonContent: {
-    height: 52,
+    height: 50,
   },
+
+  buttonLabel: {
+    fontWeight: "900",
+    letterSpacing: 0.2,
+  },
+
+  registerRow: {
+    marginTop: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    flexWrap: "wrap",
+  },
+
   linkButton: {
-    marginTop: 8,
+    marginLeft: 2,
   },
+
+  registerLabel: {
+    fontWeight: "900",
+  },
+
+  footerCard: {
+    marginTop: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  footerIcon: {
+    margin: 0,
+    marginRight: 4,
+  },
+
   footerText: {
-    textAlign: "center",
-    marginTop: 18,
+    flex: 1,
     lineHeight: 18,
   },
 });

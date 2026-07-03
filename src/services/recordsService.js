@@ -9,6 +9,7 @@ import {
 import { db } from "../firebase/firebaseConfig";
 
 //JS:
+//Helpers:
 export const getWorkoutSessions = async ({ uid, maxResults = 80 }) => {
   if (!uid) {
     throw new Error("No se encontró el usuario.");
@@ -41,7 +42,13 @@ export const getDateFromFirestore = (value) => {
     return value;
   }
 
-  return null;
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return null;
+  }
+
+  return parsedDate;
 };
 
 export const getDateKey = (date) => {
@@ -56,8 +63,10 @@ export const getDateKey = (date) => {
 
 export const getStartOfWeek = (baseDate = new Date()) => {
   const date = new Date(baseDate);
-  const day = date.getDay();
 
+  date.setHours(0, 0, 0, 0);
+
+  const day = date.getDay();
   const diffToMonday = day === 0 ? -6 : 1 - day;
 
   date.setDate(date.getDate() + diffToMonday);
@@ -94,6 +103,30 @@ export const getWeekDays = (baseDate = new Date()) => {
       completedExercises: 0,
     };
   });
+};
+
+const getSessionDate = (session) => {
+  return (
+    getDateFromFirestore(session?.trainedAt) ||
+    getDateFromFirestore(session?.createdAt) ||
+    getDateFromFirestore(session?.createdDate)
+  );
+};
+
+const getSessionDateKey = (session, sessionDate) => {
+  if (session?.trainedDateKey) {
+    return session.trainedDateKey;
+  }
+
+  if (session?.dateKey) {
+    return session.dateKey;
+  }
+
+  if (sessionDate) {
+    return getDateKey(sessionDate);
+  }
+
+  return "";
 };
 
 const getSessionsInRange = ({ sessions, startDate, endDate }) => {
@@ -257,17 +290,19 @@ export const buildRecordStats = ({ sessions, weeklyGoalDays = 1 }) => {
 
   const weekDays = getWeekDays(today);
 
-  const parsedSessions = sessions
+  const parsedSessions = (Array.isArray(sessions) ? sessions : [])
     .map((session) => {
-      const createdDate = getDateFromFirestore(session.createdAt);
+      const createdDate = getSessionDate(session);
+      const dateKey = getSessionDateKey(session, createdDate);
 
       return {
         ...session,
         createdDate,
-        dateKey: createdDate ? getDateKey(createdDate) : "",
+        dateKey,
       };
     })
-    .filter((session) => !!session.createdDate);
+    .filter((session) => !!session.createdDate)
+    .sort((a, b) => b.createdDate.getTime() - a.createdDate.getTime());
 
   const weeklySessions = getSessionsInRange({
     sessions: parsedSessions,
@@ -299,11 +334,15 @@ export const buildRecordStats = ({ sessions, weeklyGoalDays = 1 }) => {
   });
 
   const trainedDateKeys = new Set(
-    weeklySessions.map((session) => session.dateKey)
+    weeklySessions
+      .map((session) => session.dateKey)
+      .filter((dateKey) => !!dateKey)
   );
 
   const previousTrainedDateKeys = new Set(
-    previousWeeklySessions.map((session) => session.dateKey)
+    previousWeeklySessions
+      .map((session) => session.dateKey)
+      .filter((dateKey) => !!dateKey)
   );
 
   const weeklyTrainedDays = trainedDateKeys.size;
@@ -385,6 +424,9 @@ export const buildRecordStats = ({ sessions, weeklyGoalDays = 1 }) => {
     weeklyCompletedExercises: weeklySummary.completedExercises,
     previousWeeklyCompletedExercises:
       previousWeeklySummary.completedExercises,
+
+    weeklySessionsCount: weeklySummary.workouts,
+    previousWeeklySessionsCount: previousWeeklySummary.workouts,
 
     comparison,
     exerciseProgress,
