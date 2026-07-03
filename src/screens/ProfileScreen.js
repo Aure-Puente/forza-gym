@@ -274,7 +274,7 @@ export default function ProfileScreen({
             ]}
           >
             <IconButton
-              icon="dumbbell"
+              icon="account-circle-outline"
               size={15}
               iconColor={theme.colors.primary}
               style={styles.eyebrowIcon}

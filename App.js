@@ -1,11 +1,19 @@
+//App.js:
 import React, { useEffect, useMemo, useState } from "react";
-import { useColorScheme, View } from "react-native";
+import { Platform, useColorScheme, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as NavigationBar from "expo-navigation-bar";
 import { ActivityIndicator, PaperProvider } from "react-native-paper";
-import { SafeAreaProvider } from "react-native-safe-area-context";
-import { NavigationContainer } from "@react-navigation/native";
+import {
+  SafeAreaProvider,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
+import {
+  DarkTheme,
+  DefaultTheme,
+  NavigationContainer,
+} from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
-
 import AppNavigator from "./src/navigation/AppNavigator";
 import { AuthProvider } from "./src/context/AuthContext";
 import { getLiftLogTheme } from "./src/theme/theme";
@@ -13,8 +21,9 @@ import { getLiftLogTheme } from "./src/theme/theme";
 const THEME_MODE_KEY = "@forte_theme_mode";
 const COLOR_PRESET_KEY = "@forte_color_preset";
 
-export default function App() {
+function AppContent() {
   const colorScheme = useColorScheme();
+  const insets = useSafeAreaInsets();
 
   const [themeMode, setThemeMode] = useState("system");
   const [colorPreset, setColorPreset] = useState("green");
@@ -78,45 +87,91 @@ export default function App() {
     });
   }, [themeMode, colorPreset, colorScheme]);
 
+  const navigationTheme = useMemo(() => {
+    const baseTheme = isDark ? DarkTheme : DefaultTheme;
+
+    return {
+      ...baseTheme,
+      dark: isDark,
+      colors: {
+        ...baseTheme.colors,
+        primary: theme.colors.primary,
+        background: theme.colors.background,
+        card: theme.colors.surface,
+        text: theme.colors.onSurface,
+        border: theme.colors.outlineVariant,
+        notification: theme.colors.primary,
+      },
+    };
+  }, [isDark, theme]);
+
   const statusBarStyle = isDark ? "light" : "dark";
   const statusBarBackground = theme.colors.background;
 
+  useEffect(() => {
+    const configureSystemBars = async () => {
+      if (Platform.OS !== "android") return;
+
+      try {
+        await NavigationBar.setBackgroundColorAsync(theme.colors.surface);
+        await NavigationBar.setButtonStyleAsync(isDark ? "light" : "dark");
+      } catch (error) {
+        console.log("NAVIGATION BAR CONFIG ERROR:", error);
+      }
+    };
+
+    configureSystemBars();
+  }, [isDark, theme]);
+
+  const StatusBarBackground = () => {
+    return (
+      <View
+        style={{
+          height: insets.top,
+          backgroundColor: statusBarBackground,
+        }}
+      />
+    );
+  };
+
   if (!preferencesLoaded) {
     return (
-      <SafeAreaProvider>
-        <PaperProvider theme={theme}>
-          <StatusBar
-            style={statusBarStyle}
-            backgroundColor={statusBarBackground}
-            translucent={false}
-          />
+      <PaperProvider theme={theme}>
+        <StatusBar
+          style={statusBarStyle}
+          backgroundColor={statusBarBackground}
+          translucent
+        />
 
-          <View
-            style={{
-              flex: 1,
-              backgroundColor: theme.colors.background,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <ActivityIndicator size="large" color={theme.colors.primary} />
-          </View>
-        </PaperProvider>
-      </SafeAreaProvider>
+        <StatusBarBackground />
+
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: theme.colors.background,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
+      </PaperProvider>
     );
   }
 
   return (
-    <SafeAreaProvider>
-      <PaperProvider theme={theme}>
-        <AuthProvider>
-          <NavigationContainer theme={theme}>
-            <StatusBar
-              style={statusBarStyle}
-              backgroundColor={statusBarBackground}
-              translucent={false}
-            />
+    <PaperProvider theme={theme}>
+      <AuthProvider>
+        <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+          <StatusBar
+            style={statusBarStyle}
+            backgroundColor={statusBarBackground}
+            translucent
+          />
 
+          <StatusBarBackground />
+
+          <NavigationContainer theme={navigationTheme}>
             <AppNavigator
               themeMode={themeMode}
               setThemeMode={setThemeMode}
@@ -124,8 +179,16 @@ export default function App() {
               setColorPreset={setColorPreset}
             />
           </NavigationContainer>
-        </AuthProvider>
-      </PaperProvider>
+        </View>
+      </AuthProvider>
+    </PaperProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppContent />
     </SafeAreaProvider>
   );
 }

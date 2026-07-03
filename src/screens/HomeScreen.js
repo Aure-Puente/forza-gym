@@ -8,7 +8,6 @@ import {
   View,
 } from "react-native";
 import {
-  ActivityIndicator,
   Avatar,
   Button,
   Card,
@@ -196,7 +195,13 @@ export default function HomeScreen({ navigation }) {
     ? "rgba(255,255,255,0.055)"
     : "rgba(15,23,42,0.035)";
 
-  const successColor = theme.dark ? "#86EFAC" : "#15803D";
+  const skeletonBase = theme.dark
+    ? "rgba(255,255,255,0.075)"
+    : "rgba(15,23,42,0.07)";
+
+  const skeletonStrong = theme.dark
+    ? "rgba(255,255,255,0.12)"
+    : "rgba(15,23,42,0.11)";
 
   const stats = useMemo(() => {
     return buildRecordStats({
@@ -261,14 +266,60 @@ export default function HomeScreen({ navigation }) {
     return stats?.parsedSessions?.[0] || null;
   }, [stats?.parsedSessions]);
 
-  const nextTrainingDay = useMemo(() => {
-    if (!trainingDays.length) return null;
+  const completedTrainingDayIdsThisWeek = useMemo(() => {
+    const ids = new Set();
 
-    const todayIndex = new Date().getDay();
-    const safeIndex = todayIndex === 0 ? 0 : todayIndex - 1;
+    const weeklySessions = Array.isArray(weeklyStats?.sessions)
+      ? weeklyStats.sessions
+      : Array.isArray(stats?.weeklySessions)
+      ? stats.weeklySessions
+      : [];
 
-    return trainingDays[safeIndex % trainingDays.length] || trainingDays[0];
-  }, [trainingDays]);
+    weeklySessions.forEach((session) => {
+      if (session?.dayId) {
+        ids.add(session.dayId);
+      }
+    });
+
+    return ids;
+  }, [weeklyStats?.sessions, stats?.weeklySessions]);
+
+  const nextTrainingInfo = useMemo(() => {
+    if (!trainingDays.length) {
+      return {
+        day: null,
+        allCompleted: false,
+        completedCount: 0,
+        totalCount: 0,
+      };
+    }
+
+    const completedCount = trainingDays.filter((day) =>
+      completedTrainingDayIdsThisWeek.has(day.id)
+    ).length;
+
+    const pendingDay = trainingDays.find(
+      (day) => !completedTrainingDayIdsThisWeek.has(day.id)
+    );
+
+    if (pendingDay) {
+      return {
+        day: pendingDay,
+        allCompleted: false,
+        completedCount,
+        totalCount: trainingDays.length,
+      };
+    }
+
+    return {
+      day: trainingDays[0],
+      allCompleted: true,
+      completedCount,
+      totalCount: trainingDays.length,
+    };
+  }, [trainingDays, completedTrainingDayIdsThisWeek]);
+
+  const nextTrainingDay = nextTrainingInfo.day;
 
   const bestExercise = useMemo(() => {
     const progress = stats?.exerciseProgress || [];
@@ -355,6 +406,315 @@ export default function HomeScreen({ navigation }) {
       dayId: nextTrainingDay.id,
       dayName: nextTrainingDay.name,
     });
+  };
+
+  const renderSkeletonBox = (style, strong = false) => {
+    return (
+      <View
+        style={[
+          styles.skeletonBox,
+          {
+            backgroundColor: strong ? skeletonStrong : skeletonBase,
+          },
+          style,
+        ]}
+      />
+    );
+  };
+
+  const renderHomeSkeletons = () => {
+    return (
+      <>
+        <View
+          style={[
+            styles.headerCard,
+            {
+              backgroundColor: premiumSurface,
+              borderColor: premiumBorder,
+            },
+          ]}
+        >
+          <View style={styles.headerTopRow}>
+            <View style={styles.headerTextBox}>
+              {renderSkeletonBox(styles.skeletonGreeting)}
+              {renderSkeletonBox(styles.skeletonTitle, true)}
+              {renderSkeletonBox(styles.skeletonSubtitle)}
+              {renderSkeletonBox(styles.skeletonSubtitleSmall)}
+            </View>
+
+            {renderSkeletonBox(styles.skeletonAvatar, true)}
+          </View>
+
+          <View style={styles.headerBottomRow}>
+            <View
+              style={[
+                styles.headerMiniStat,
+                {
+                  backgroundColor: mutedSurface,
+                  borderColor: premiumBorder,
+                },
+              ]}
+            >
+              {renderSkeletonBox(styles.skeletonMiniLabel)}
+              {renderSkeletonBox(styles.skeletonMiniValue, true)}
+            </View>
+
+            <View
+              style={[
+                styles.headerMiniStat,
+                {
+                  backgroundColor: mutedSurface,
+                  borderColor: premiumBorder,
+                },
+              ]}
+            >
+              {renderSkeletonBox(styles.skeletonMiniLabel)}
+              {renderSkeletonBox(styles.skeletonMiniValue, true)}
+            </View>
+          </View>
+        </View>
+
+        <Card
+          mode="contained"
+          style={[
+            styles.socialCard,
+            {
+              backgroundColor: premiumSurface,
+              borderColor: premiumBorder,
+            },
+          ]}
+        >
+          <Card.Content>
+            <View style={styles.socialHeader}>
+              <View style={styles.socialHeaderText}>
+                {renderSkeletonBox(styles.skeletonSectionTitle, true)}
+                {renderSkeletonBox(styles.skeletonSectionSubtitle)}
+              </View>
+
+              {renderSkeletonBox(styles.skeletonButton)}
+            </View>
+
+            <View style={styles.socialPreviewList}>
+              {[1, 2].map((item) => (
+                <View
+                  key={item}
+                  style={[
+                    styles.socialPreviewItem,
+                    {
+                      backgroundColor: mutedSurface,
+                      borderColor: premiumBorder,
+                    },
+                  ]}
+                >
+                  <View style={styles.socialPreviewContent}>
+                    <View style={styles.socialPreviewTop}>
+                      {renderSkeletonBox(styles.skeletonSmallAvatar, true)}
+
+                      <View style={styles.socialPreviewUserBox}>
+                        {renderSkeletonBox(styles.skeletonPostName, true)}
+                        {renderSkeletonBox(styles.skeletonPostDate)}
+                      </View>
+
+                      {renderSkeletonBox(styles.skeletonPostImage, true)}
+                    </View>
+
+                    {renderSkeletonBox(styles.skeletonPostLine)}
+                    {renderSkeletonBox(styles.skeletonPostLineShort)}
+
+                    <View style={styles.socialPreviewBottom}>
+                      {renderSkeletonBox(styles.skeletonChip)}
+                      {renderSkeletonBox(styles.skeletonLink)}
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </Card.Content>
+        </Card>
+
+        <Card
+          mode="contained"
+          style={[
+            styles.heroCard,
+            {
+              backgroundColor: premiumSurface,
+              borderColor: premiumBorder,
+            },
+          ]}
+        >
+          <Card.Content>
+            <View style={styles.heroTop}>
+              <View style={styles.heroInfo}>
+                {renderSkeletonBox(styles.skeletonChip)}
+                {renderSkeletonBox(styles.skeletonHeroTitle, true)}
+                {renderSkeletonBox(styles.skeletonHeroText)}
+                {renderSkeletonBox(styles.skeletonHeroTextShort)}
+              </View>
+
+              {renderSkeletonBox(styles.skeletonDonut, true)}
+            </View>
+
+            {renderSkeletonBox(styles.skeletonProgress)}
+
+            <View style={styles.heroStats}>
+              {[1, 2, 3].map((item) => (
+                <View
+                  key={item}
+                  style={[
+                    styles.heroStatItem,
+                    {
+                      backgroundColor: mutedSurface,
+                      borderColor: premiumBorder,
+                    },
+                  ]}
+                >
+                  {renderSkeletonBox(styles.skeletonStatValue, true)}
+                  {renderSkeletonBox(styles.skeletonStatLabel)}
+                </View>
+              ))}
+            </View>
+          </Card.Content>
+        </Card>
+
+        <Card
+          mode="contained"
+          style={[
+            styles.card,
+            {
+              backgroundColor: premiumSurface,
+              borderColor: premiumBorder,
+            },
+          ]}
+        >
+          <Card.Content>
+            <View style={styles.nextHeader}>
+              <View style={styles.nextTextBox}>
+                {renderSkeletonBox(styles.skeletonSectionTitle, true)}
+                {renderSkeletonBox(styles.skeletonSectionSubtitle)}
+                {renderSkeletonBox(styles.skeletonSectionSubtitleSmall)}
+              </View>
+
+              {renderSkeletonBox(styles.skeletonNextIcon, true)}
+            </View>
+
+            <View
+              style={[
+                styles.nextBox,
+                {
+                  backgroundColor: mutedSurface,
+                  borderColor: premiumBorder,
+                },
+              ]}
+            >
+              <View style={styles.nextBoxText}>
+                {renderSkeletonBox(styles.skeletonNextTitle, true)}
+                {renderSkeletonBox(styles.skeletonNextSubtitle)}
+              </View>
+
+              {renderSkeletonBox(styles.skeletonNextButton)}
+            </View>
+          </Card.Content>
+        </Card>
+
+        <View style={styles.grid}>
+          {[1, 2].map((item) => (
+            <Card
+              key={item}
+              mode="contained"
+              style={[
+                styles.smallStatCard,
+                {
+                  backgroundColor: premiumSurface,
+                  borderColor: premiumBorder,
+                },
+              ]}
+            >
+              <Card.Content>
+                {renderSkeletonBox(styles.skeletonSmallCardValue, true)}
+                {renderSkeletonBox(styles.skeletonSmallCardLabel)}
+              </Card.Content>
+            </Card>
+          ))}
+        </View>
+
+        <Card
+          mode="contained"
+          style={[
+            styles.card,
+            {
+              backgroundColor: premiumSurface,
+              borderColor: premiumBorder,
+            },
+          ]}
+        >
+          <Card.Content>
+            {renderSkeletonBox(styles.skeletonSectionTitle, true)}
+
+            <View
+              style={[
+                styles.lastSessionBox,
+                {
+                  backgroundColor: mutedSurface,
+                  borderColor: premiumBorder,
+                  marginTop: 14,
+                },
+              ]}
+            >
+              <View style={styles.lastSessionLeft}>
+                {renderSkeletonBox(styles.skeletonNextTitle, true)}
+                {renderSkeletonBox(styles.skeletonNextSubtitle)}
+              </View>
+
+              <View style={styles.lastSessionRight}>
+                {renderSkeletonBox(styles.skeletonLastRight)}
+                {renderSkeletonBox(styles.skeletonLastRightSmall)}
+              </View>
+            </View>
+          </Card.Content>
+        </Card>
+
+        <Card
+          mode="contained"
+          style={[
+            styles.card,
+            {
+              backgroundColor: premiumSurface,
+              borderColor: premiumBorder,
+            },
+          ]}
+        >
+          <Card.Content>
+            {renderSkeletonBox(styles.skeletonSectionTitle, true)}
+
+            <View style={[styles.quickGrid, { marginTop: 14 }]}>
+              {[1, 2, 3, 4].map((item) => (
+                <View
+                  key={item}
+                  style={[
+                    styles.quickAction,
+                    {
+                      backgroundColor: mutedSurface,
+                      borderColor: premiumBorder,
+                    },
+                  ]}
+                >
+                  <View style={styles.quickActionContent}>
+                    {renderSkeletonBox(styles.skeletonQuickIcon, true)}
+
+                    <View style={styles.quickTextBox}>
+                      {renderSkeletonBox(styles.skeletonQuickTitle, true)}
+                      {renderSkeletonBox(styles.skeletonQuickSubtitle)}
+                    </View>
+
+                    {renderSkeletonBox(styles.skeletonQuickArrow)}
+                  </View>
+                </View>
+              ))}
+            </View>
+          </Card.Content>
+        </Card>
+      </>
+    );
   };
 
   const renderQuickAction = ({
@@ -564,184 +924,162 @@ export default function HomeScreen({ navigation }) {
         <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
       }
     >
-      <View
-        style={[
-          styles.headerCard,
-          {
-            backgroundColor: premiumSurface,
-            borderColor: premiumBorder,
-          },
-        ]}
-      >
-        <View style={styles.headerTopRow}>
-          <View style={styles.headerTextBox}>
-            <View
-              style={[
-                styles.greetingPill,
-                {
-                  backgroundColor: softPrimary,
-                  borderColor: premiumBorder,
-                },
-              ]}
-            >
-              <IconButton
-                icon={getGreetingIcon()}
-                size={15}
-                iconColor={theme.colors.primary}
-                style={styles.greetingIcon}
-              />
+      {loading ? (
+        renderHomeSkeletons()
+      ) : (
+        <>
+          <View
+            style={[
+              styles.headerCard,
+              {
+                backgroundColor: premiumSurface,
+                borderColor: premiumBorder,
+              },
+            ]}
+          >
+            <View style={styles.headerTopRow}>
+              <View style={styles.headerTextBox}>
+                <View
+                  style={[
+                    styles.greetingPill,
+                    {
+                      backgroundColor: softPrimary,
+                      borderColor: premiumBorder,
+                    },
+                  ]}
+                >
+                  <IconButton
+                    icon={getGreetingIcon()}
+                    size={15}
+                    iconColor={theme.colors.primary}
+                    style={styles.greetingIcon}
+                  />
 
-              <Text
-                variant="labelSmall"
-                style={{
-                  color: theme.colors.primary,
-                  fontWeight: "900",
-                  letterSpacing: 0.6,
-                }}
+                  <Text
+                    variant="labelSmall"
+                    style={{
+                      color: theme.colors.primary,
+                      fontWeight: "900",
+                      letterSpacing: 0.6,
+                    }}
+                  >
+                    {getGreeting().toUpperCase()}
+                  </Text>
+                </View>
+
+                <Text
+                  variant="headlineMedium"
+                  numberOfLines={1}
+                  style={[styles.title, { color: theme.colors.onSurface }]}
+                >
+                  {firstName}
+                </Text>
+
+                <Text
+                  variant="bodyMedium"
+                  style={[
+                    styles.headerSubtitle,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {weeklySubtitle}
+                </Text>
+              </View>
+
+              <TouchableRipple
+                borderless
+                onPress={() => goToTab("Perfil")}
+                style={styles.avatarTouchable}
               >
-                {getGreeting().toUpperCase()}
-              </Text>
+                <View
+                  style={[
+                    styles.avatarRing,
+                    {
+                      backgroundColor: softPrimary,
+                      borderColor: theme.colors.primary,
+                    },
+                  ]}
+                >
+                  {photoURL ? (
+                    <Avatar.Image size={74} source={{ uri: photoURL }} />
+                  ) : (
+                    <Avatar.Text
+                      size={74}
+                      label={getInitial(displayName)}
+                      style={{ backgroundColor: "transparent" }}
+                      color={theme.colors.primary}
+                      labelStyle={{ fontWeight: "900" }}
+                    />
+                  )}
+                </View>
+              </TouchableRipple>
             </View>
 
-            <Text
-              variant="headlineMedium"
-              numberOfLines={1}
-              style={[styles.title, { color: theme.colors.onSurface }]}
-            >
-              {firstName}
-            </Text>
+            <View style={styles.headerBottomRow}>
+              <View
+                style={[
+                  styles.headerMiniStat,
+                  {
+                    backgroundColor: mutedSurface,
+                    borderColor: premiumBorder,
+                  },
+                ]}
+              >
+                <Text
+                  variant="labelSmall"
+                  style={{
+                    color: theme.colors.onSurfaceVariant,
+                    fontWeight: "800",
+                  }}
+                >
+                  ESTA SEMANA
+                </Text>
 
-            <Text
-              variant="bodyMedium"
-              style={[
-                styles.headerSubtitle,
-                { color: theme.colors.onSurfaceVariant },
-              ]}
-            >
-              {weeklySubtitle}
-            </Text>
-          </View>
-
-          <TouchableRipple
-            borderless
-            onPress={() => goToTab("Perfil")}
-            style={styles.avatarTouchable}
-          >
-            <View
-              style={[
-                styles.avatarRing,
-                {
-                  backgroundColor: softPrimary,
-                  borderColor: theme.colors.primary,
-                },
-              ]}
-            >
-              {photoURL ? (
-                <Avatar.Image size={74} source={{ uri: photoURL }} />
-              ) : (
-                <Avatar.Text
-                  size={74}
-                  label={getInitial(displayName)}
-                  style={{ backgroundColor: "transparent" }}
-                  color={theme.colors.primary}
-                  labelStyle={{ fontWeight: "900" }}
-                />
-              )}
+                <Text
+                  variant="titleMedium"
+                  style={{
+                    color: theme.colors.primary,
+                    fontWeight: "900",
+                    marginTop: 2,
+                  }}
+                >
+                  {weeklyView.trainedDaysCount}/{weeklyView.goal}
+                </Text>
+              </View>
 
               <View
                 style={[
-                  styles.avatarStatus,
+                  styles.headerMiniStat,
                   {
-                    backgroundColor: successColor,
-                    borderColor: theme.colors.surface,
+                    backgroundColor: mutedSurface,
+                    borderColor: premiumBorder,
                   },
                 ]}
-              />
+              >
+                <Text
+                  variant="labelSmall"
+                  style={{
+                    color: theme.colors.onSurfaceVariant,
+                    fontWeight: "800",
+                  }}
+                >
+                  VOLUMEN
+                </Text>
+
+                <Text
+                  variant="titleMedium"
+                  style={{
+                    color: theme.colors.primary,
+                    fontWeight: "900",
+                    marginTop: 2,
+                  }}
+                >
+                  {formatNumber(weeklyView.weeklyVolume)} kg
+                </Text>
+              </View>
             </View>
-          </TouchableRipple>
-        </View>
-
-        <View style={styles.headerBottomRow}>
-          <View
-            style={[
-              styles.headerMiniStat,
-              {
-                backgroundColor: mutedSurface,
-                borderColor: premiumBorder,
-              },
-            ]}
-          >
-            <Text
-              variant="labelSmall"
-              style={{
-                color: theme.colors.onSurfaceVariant,
-                fontWeight: "800",
-              }}
-            >
-              ESTA SEMANA
-            </Text>
-
-            <Text
-              variant="titleMedium"
-              style={{
-                color: theme.colors.primary,
-                fontWeight: "900",
-                marginTop: 2,
-              }}
-            >
-              {weeklyView.trainedDaysCount}/{weeklyView.goal}
-            </Text>
           </View>
 
-          <View
-            style={[
-              styles.headerMiniStat,
-              {
-                backgroundColor: mutedSurface,
-                borderColor: premiumBorder,
-              },
-            ]}
-          >
-            <Text
-              variant="labelSmall"
-              style={{
-                color: theme.colors.onSurfaceVariant,
-                fontWeight: "800",
-              }}
-            >
-              VOLUMEN
-            </Text>
-
-            <Text
-              variant="titleMedium"
-              style={{
-                color: theme.colors.primary,
-                fontWeight: "900",
-                marginTop: 2,
-              }}
-            >
-              {formatNumber(weeklyView.weeklyVolume)} kg
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      {loading ? (
-        <View style={styles.loadingBox}>
-          <ActivityIndicator size="large" />
-
-          <Text
-            variant="bodyMedium"
-            style={{
-              color: theme.colors.onSurfaceVariant,
-              marginTop: 12,
-            }}
-          >
-            Cargando inicio...
-          </Text>
-        </View>
-      ) : (
-        <>
           {recentSocialPosts.length > 0 && (
             <Card
               mode="contained"
@@ -883,8 +1221,7 @@ export default function HomeScreen({ navigation }) {
                   </View>
                 </View>
               </View>
-
-              <ProgressBar
+                            <ProgressBar
                 progress={weeklyView.progressPercent / 100}
                 color={theme.colors.primary}
                 style={[
@@ -1005,7 +1342,9 @@ export default function HomeScreen({ navigation }) {
                     }}
                   >
                     {nextTrainingDay
-                      ? "Entrá directo al día sugerido."
+                      ? nextTrainingInfo.allCompleted
+                        ? "Ya completaste todos tus días de esta semana."
+                        : "Te mostramos el próximo día que todavía no completaste."
                       : "Todavía no creaste días de entrenamiento."}
                   </Text>
                 </View>
@@ -1018,7 +1357,11 @@ export default function HomeScreen({ navigation }) {
                       fontWeight: "900",
                     }}
                   >
-                    {nextTrainingDay ? "🏋️" : "+"}
+                    {nextTrainingDay
+                      ? nextTrainingInfo.allCompleted
+                        ? "✅"
+                        : "🏋️"
+                      : "+"}
                   </Text>
                 </View>
               </View>
@@ -1052,7 +1395,9 @@ export default function HomeScreen({ navigation }) {
                     }}
                   >
                     {nextTrainingDay
-                      ? `${trainingDays.length} días creados en Entreno`
+                      ? nextTrainingInfo.allCompleted
+                        ? `${nextTrainingInfo.completedCount}/${nextTrainingInfo.totalCount} días completados esta semana`
+                        : `${nextTrainingInfo.completedCount}/${nextTrainingInfo.totalCount} días completados · siguiente pendiente`
                       : "Agregá tus días para empezar a registrar."}
                   </Text>
                 </View>
@@ -1063,7 +1408,11 @@ export default function HomeScreen({ navigation }) {
                   style={styles.nextButton}
                   onPress={goToWorkoutDay}
                 >
-                  {nextTrainingDay ? "Entrar" : "Crear"}
+                  {nextTrainingDay
+                    ? nextTrainingInfo.allCompleted
+                      ? "Repetir"
+                      : "Entrar"
+                    : "Crear"}
                 </Button>
               </View>
             </Card.Content>
@@ -1435,16 +1784,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  avatarStatus: {
-    position: "absolute",
-    right: 5,
-    bottom: 6,
-    width: 17,
-    height: 17,
-    borderRadius: 8.5,
-    borderWidth: 2,
-  },
-
   headerBottomRow: {
     flexDirection: "row",
     gap: 10,
@@ -1456,12 +1795,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     padding: 12,
-  },
-
-  loadingBox: {
-    minHeight: 420,
-    alignItems: "center",
-    justifyContent: "center",
   },
 
   socialCard: {
@@ -1717,5 +2050,255 @@ const styles = StyleSheet.create({
 
   quickArrow: {
     margin: 0,
+  },
+
+  skeletonBox: {
+    overflow: "hidden",
+  },
+
+  skeletonGreeting: {
+    width: 126,
+    height: 30,
+    borderRadius: 999,
+    marginBottom: 12,
+  },
+
+  skeletonTitle: {
+    width: "58%",
+    height: 34,
+    borderRadius: 12,
+  },
+
+  skeletonSubtitle: {
+    width: "94%",
+    height: 14,
+    borderRadius: 999,
+    marginTop: 12,
+  },
+
+  skeletonSubtitleSmall: {
+    width: "72%",
+    height: 14,
+    borderRadius: 999,
+    marginTop: 8,
+  },
+
+  skeletonAvatar: {
+    width: 86,
+    height: 86,
+    borderRadius: 43,
+  },
+
+  skeletonMiniLabel: {
+    width: "72%",
+    height: 11,
+    borderRadius: 999,
+  },
+
+  skeletonMiniValue: {
+    width: "52%",
+    height: 22,
+    borderRadius: 999,
+    marginTop: 8,
+  },
+
+  skeletonSectionTitle: {
+    width: "62%",
+    height: 24,
+    borderRadius: 10,
+  },
+
+  skeletonSectionSubtitle: {
+    width: "88%",
+    height: 14,
+    borderRadius: 999,
+    marginTop: 10,
+  },
+
+  skeletonSectionSubtitleSmall: {
+    width: "65%",
+    height: 14,
+    borderRadius: 999,
+    marginTop: 8,
+  },
+
+  skeletonButton: {
+    width: 54,
+    height: 30,
+    borderRadius: 999,
+  },
+
+  skeletonSmallAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+  },
+
+  skeletonPostName: {
+    width: "76%",
+    height: 15,
+    borderRadius: 999,
+  },
+
+  skeletonPostDate: {
+    width: "52%",
+    height: 12,
+    borderRadius: 999,
+    marginTop: 8,
+  },
+
+  skeletonPostImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+  },
+
+  skeletonPostLine: {
+    width: "95%",
+    height: 13,
+    borderRadius: 999,
+    marginTop: 12,
+  },
+
+  skeletonPostLineShort: {
+    width: "68%",
+    height: 13,
+    borderRadius: 999,
+    marginTop: 8,
+  },
+
+  skeletonChip: {
+    width: 118,
+    height: 32,
+    borderRadius: 999,
+  },
+
+  skeletonLink: {
+    width: 76,
+    height: 14,
+    borderRadius: 999,
+  },
+
+  skeletonHeroTitle: {
+    width: "68%",
+    height: 29,
+    borderRadius: 11,
+    marginTop: 14,
+  },
+
+  skeletonHeroText: {
+    width: "92%",
+    height: 14,
+    borderRadius: 999,
+    marginTop: 12,
+  },
+
+  skeletonHeroTextShort: {
+    width: "72%",
+    height: 14,
+    borderRadius: 999,
+    marginTop: 8,
+  },
+
+  skeletonDonut: {
+    width: 118,
+    height: 118,
+    borderRadius: 59,
+  },
+
+  skeletonProgress: {
+    height: 10,
+    borderRadius: 999,
+    marginTop: 18,
+  },
+
+  skeletonStatValue: {
+    width: "56%",
+    height: 22,
+    borderRadius: 999,
+  },
+
+  skeletonStatLabel: {
+    width: "72%",
+    height: 12,
+    borderRadius: 999,
+    marginTop: 8,
+  },
+
+  skeletonNextIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+  },
+
+  skeletonNextTitle: {
+    width: "68%",
+    height: 20,
+    borderRadius: 999,
+  },
+
+  skeletonNextSubtitle: {
+    width: "88%",
+    height: 13,
+    borderRadius: 999,
+    marginTop: 8,
+  },
+
+  skeletonNextButton: {
+    width: 86,
+    height: 42,
+    borderRadius: 16,
+  },
+
+  skeletonSmallCardValue: {
+    width: "48%",
+    height: 29,
+    borderRadius: 999,
+  },
+
+  skeletonSmallCardLabel: {
+    width: "88%",
+    height: 13,
+    borderRadius: 999,
+    marginTop: 10,
+  },
+
+  skeletonLastRight: {
+    width: 62,
+    height: 15,
+    borderRadius: 999,
+  },
+
+  skeletonLastRightSmall: {
+    width: 74,
+    height: 13,
+    borderRadius: 999,
+    marginTop: 8,
+  },
+
+  skeletonQuickIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    marginRight: 12,
+  },
+
+  skeletonQuickTitle: {
+    width: "44%",
+    height: 15,
+    borderRadius: 999,
+  },
+
+  skeletonQuickSubtitle: {
+    width: "66%",
+    height: 13,
+    borderRadius: 999,
+    marginTop: 8,
+  },
+
+  skeletonQuickArrow: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
   },
 });

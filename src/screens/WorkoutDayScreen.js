@@ -1,6 +1,9 @@
+//Importaciones:
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  AppState,
+  KeyboardAvoidingView,
   LayoutAnimation,
   Platform,
   RefreshControl,
@@ -9,6 +12,7 @@ import {
   UIManager,
   View,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   ActivityIndicator,
   Button,
@@ -47,7 +51,7 @@ if (
 }
 
 const formatTime = (totalSeconds) => {
-  const safeSeconds = Math.max(0, totalSeconds || 0);
+  const safeSeconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
 
   const hours = Math.floor(safeSeconds / 3600);
   const minutes = Math.floor((safeSeconds % 3600) / 60);
@@ -65,6 +69,10 @@ const formatTime = (totalSeconds) => {
 
 const formatNumber = (value) => {
   return new Intl.NumberFormat("es-AR").format(Number(value) || 0);
+};
+
+const getWorkoutLocalKey = ({ uid, dayId }) => {
+  return `@forte_workout_day_state_${uid}_${dayId}`;
 };
 
 export default function WorkoutDayScreen({ navigation, route }) {
@@ -96,13 +104,36 @@ export default function WorkoutDayScreen({ navigation, route }) {
   const [timerVisible, setTimerVisible] = useState(false);
   const [workoutSeconds, setWorkoutSeconds] = useState(0);
   const [isWorkoutRunning, setIsWorkoutRunning] = useState(false);
+  const [workoutBaseSeconds, setWorkoutBaseSeconds] = useState(0);
+  const [workoutStartedAt, setWorkoutStartedAt] = useState(null);
+
+  const [setProgressByExerciseId, setSetProgressByExerciseId] = useState({});
+
+  const [restTimerVisible, setRestTimerVisible] = useState(false);
+  const [restExercise, setRestExercise] = useState(null);
+  const [restDurationSeconds, setRestDurationSeconds] = useState(60);
+  const [restRemainingSeconds, setRestRemainingSeconds] = useState(60);
+  const [restEndAt, setRestEndAt] = useState(null);
+  const [isRestRunning, setIsRestRunning] = useState(false);
+  const [restFinished, setRestFinished] = useState(false);
 
   const [finishDialogVisible, setFinishDialogVisible] = useState(false);
   const [finishingWorkout, setFinishingWorkout] = useState(false);
 
-  const workoutIntervalRef = useRef(null);
+  const [localStateLoaded, setLocalStateLoaded] = useState(false);
+
+  const syncIntervalRef = useRef(null);
 
   const isEditing = !!selectedExercise;
+
+  const localStorageKey = useMemo(() => {
+    if (!user?.uid || !dayId) return null;
+
+    return getWorkoutLocalKey({
+      uid: user.uid,
+      dayId,
+    });
+  }, [user?.uid, dayId]);
 
   const softPrimary =
     theme.custom?.softPrimary ||
@@ -120,11 +151,19 @@ export default function WorkoutDayScreen({ navigation, route }) {
     ? "rgba(255,255,255,0.055)"
     : "rgba(15,23,42,0.035)";
 
+  const elevatedSurface = theme.dark
+    ? "rgba(255,255,255,0.075)"
+    : "rgba(255,255,255,0.98)";
+
   const successSoft = theme.dark
     ? "rgba(34,197,94,0.13)"
     : "rgba(22,163,74,0.08)";
 
   const successColor = theme.dark ? "#86EFAC" : "#15803D";
+
+  const dangerSoft = theme.dark
+    ? "rgba(248,113,113,0.12)"
+    : "rgba(220,38,38,0.07)";
 
   const dangerColor = theme.dark ? "#FCA5A5" : "#B91C1C";
 
@@ -173,6 +212,172 @@ export default function WorkoutDayScreen({ navigation, route }) {
     });
   };
 
+  const getExerciseTotalSets = (exercise) => {
+    return Math.max(1, Number(exercise?.sets) || 1);
+  };
+
+  const getExerciseCompletedSets = (exercise) => {
+    if (!exercise?.id) return 0;
+
+    const totalSets = getExerciseTotalSets(exercise);
+    const localCompletedSets =
+      Number(setProgressByExerciseId?.[exercise.id]) || 0;
+
+    if (localCompletedSets > 0) {
+      return Math.min(totalSets, localCompletedSets);
+    }
+
+    if (exercise.completed) {
+      return totalSets;
+    }
+
+    return 0;
+  };
+
+  const syncLiveTimers = useCallback(() => {
+    const now = Date.now();
+
+    if (isWorkoutRunning && workoutStartedAt) {
+      const elapsedSeconds = Math.floor((now - workoutStartedAt) / 1000);
+      const nextWorkoutSeconds = workoutBaseSeconds + elapsedSeconds;
+
+      setWorkoutSeconds(Math.max(0, nextWorkoutSeconds));
+    }
+
+    if (isRestRunning && restEndAt) {
+      const nextRemaining = Math.max(0, Math.ceil((restEndAt - now) / 1000));
+
+      setRestRemainingSeconds(nextRemaining);
+
+      if (nextRemaining <= 0) {
+        setIsRestRunning(false);
+        setRestFinished(true);
+      }
+    }
+  }, [
+    isWorkoutRunning,
+    workoutStartedAt,
+    workoutBaseSeconds,
+    isRestRunning,
+    restEndAt,
+  ]);
+
+  const loadLocalState = useCallback(async () => {
+    try {
+      if (!localStorageKey) return;
+
+      const rawState = await AsyncStorage.getItem(localStorageKey);
+
+      if (!rawState) {
+        setLocalStateLoaded(true);
+        return;
+      }
+
+      const savedState = JSON.parse(rawState);
+
+      if (savedState?.setProgressByExerciseId) {
+        setSetProgressByExerciseId(savedState.setProgressByExerciseId);
+      }
+
+      if (savedState?.workoutTimer) {
+        const workoutTimer = savedState.workoutTimer;
+
+        const savedBaseSeconds = Number(workoutTimer.baseSeconds) || 0;
+        const savedStartedAt = Number(workoutTimer.startedAt) || null;
+        const savedRunning = !!workoutTimer.isRunning;
+
+        if (savedRunning && savedStartedAt) {
+          const elapsedSeconds = Math.floor(
+            (Date.now() - savedStartedAt) / 1000
+          );
+
+          setWorkoutBaseSeconds(savedBaseSeconds);
+          setWorkoutStartedAt(savedStartedAt);
+          setIsWorkoutRunning(true);
+          setWorkoutSeconds(Math.max(0, savedBaseSeconds + elapsedSeconds));
+        } else {
+          setWorkoutBaseSeconds(savedBaseSeconds);
+          setWorkoutStartedAt(null);
+          setIsWorkoutRunning(false);
+          setWorkoutSeconds(savedBaseSeconds);
+        }
+      }
+
+      if (savedState?.restTimer) {
+        const restTimer = savedState.restTimer;
+        const savedEndAt = Number(restTimer.endAt) || null;
+        const savedDurationSeconds = Number(restTimer.durationSeconds) || 60;
+        const savedRunning = !!restTimer.isRunning;
+
+        const remainingSeconds = savedEndAt
+          ? Math.max(0, Math.ceil((savedEndAt - Date.now()) / 1000))
+          : savedDurationSeconds;
+
+        setRestExercise(restTimer.exercise || null);
+        setRestDurationSeconds(savedDurationSeconds);
+        setRestEndAt(savedEndAt);
+        setRestRemainingSeconds(remainingSeconds);
+        setIsRestRunning(savedRunning && remainingSeconds > 0);
+        setRestFinished(savedRunning && remainingSeconds <= 0);
+      }
+    } catch (err) {
+      console.log("Error cargando estado local del entrenamiento:", err);
+    } finally {
+      setLocalStateLoaded(true);
+    }
+  }, [localStorageKey]);
+
+  const saveLocalState = useCallback(async () => {
+    try {
+      if (!localStorageKey || !localStateLoaded) return;
+
+      const stateToSave = {
+        setProgressByExerciseId,
+        workoutTimer: {
+          baseSeconds: workoutBaseSeconds,
+          startedAt: workoutStartedAt,
+          isRunning: isWorkoutRunning,
+        },
+        restTimer: {
+          exercise: restExercise,
+          durationSeconds: restDurationSeconds,
+          remainingSeconds: restRemainingSeconds,
+          endAt: restEndAt,
+          isRunning: isRestRunning,
+          finished: restFinished,
+        },
+        updatedAt: Date.now(),
+      };
+
+      await AsyncStorage.setItem(localStorageKey, JSON.stringify(stateToSave));
+    } catch (err) {
+      console.log("Error guardando estado local del entrenamiento:", err);
+    }
+  }, [
+    localStorageKey,
+    localStateLoaded,
+    setProgressByExerciseId,
+    workoutBaseSeconds,
+    workoutStartedAt,
+    isWorkoutRunning,
+    restExercise,
+    restDurationSeconds,
+    restRemainingSeconds,
+    restEndAt,
+    isRestRunning,
+    restFinished,
+  ]);
+
+  const clearLocalState = useCallback(async () => {
+    try {
+      if (!localStorageKey) return;
+
+      await AsyncStorage.removeItem(localStorageKey);
+    } catch (err) {
+      console.log("Error limpiando estado local del entrenamiento:", err);
+    }
+  }, [localStorageKey]);
+
   const loadExercises = useCallback(async () => {
     try {
       setError("");
@@ -202,24 +407,32 @@ export default function WorkoutDayScreen({ navigation, route }) {
   }, [loadExercises]);
 
   useEffect(() => {
-    if (isWorkoutRunning) {
-      workoutIntervalRef.current = setInterval(() => {
-        setWorkoutSeconds((prev) => prev + 1);
-      }, 1000);
-    } else if (workoutIntervalRef.current) {
-      clearInterval(workoutIntervalRef.current);
-      workoutIntervalRef.current = null;
-    }
+    loadLocalState();
+  }, [loadLocalState]);
+
+  useEffect(() => {
+    saveLocalState();
+  }, [saveLocalState]);
+
+  useEffect(() => {
+    syncIntervalRef.current = setInterval(() => {
+      syncLiveTimers();
+    }, 1000);
+
+    const subscription = AppState.addEventListener("change", () => {
+      syncLiveTimers();
+    });
 
     return () => {
-      if (workoutIntervalRef.current) {
-        clearInterval(workoutIntervalRef.current);
-        workoutIntervalRef.current = null;
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current);
+        syncIntervalRef.current = null;
       }
-    };
-  }, [isWorkoutRunning]);
 
-  const handleRefresh = async () => {
+      subscription?.remove?.();
+    };
+  }, [syncLiveTimers]);
+    const handleRefresh = async () => {
     setRefreshing(true);
     await loadExercises();
   };
@@ -328,6 +541,12 @@ export default function WorkoutDayScreen({ navigation, route }) {
                 exerciseId: exercise.id,
               });
 
+              setSetProgressByExerciseId((prev) => {
+                const next = { ...prev };
+                delete next[exercise.id];
+                return next;
+              });
+
               await loadExercises();
             } catch (err) {
               setError(err?.message || "No se pudo eliminar el ejercicio.");
@@ -339,30 +558,111 @@ export default function WorkoutDayScreen({ navigation, route }) {
     );
   };
 
+  const setExerciseCompletedState = async ({ exercise, completed }) => {
+    animateLayout();
+
+    const totalSets = getExerciseTotalSets(exercise);
+
+    setExercises((prev) =>
+      prev.map((item) =>
+        item.id === exercise.id ? { ...item, completed } : item
+      )
+    );
+
+    setSetProgressByExerciseId((prev) => ({
+      ...prev,
+      [exercise.id]: completed ? totalSets : 0,
+    }));
+
+    await updateExercise({
+      uid: user.uid,
+      dayId,
+      exerciseId: exercise.id,
+      data: {
+        completed,
+      },
+    });
+  };
+
   const handleToggleCompleted = async (exercise) => {
     try {
       const nextCompleted = !exercise.completed;
 
-      animateLayout();
-
-      setExercises((prev) =>
-        prev.map((item) =>
-          item.id === exercise.id
-            ? { ...item, completed: nextCompleted }
-            : item
-        )
-      );
-
-      await updateExercise({
-        uid: user.uid,
-        dayId,
-        exerciseId: exercise.id,
-        data: {
-          completed: nextCompleted,
-        },
+      await setExerciseCompletedState({
+        exercise,
+        completed: nextCompleted,
       });
     } catch (err) {
       setError(err?.message || "No se pudo actualizar el ejercicio.");
+      await loadExercises();
+    }
+  };
+
+  const handleCompleteSet = async ({ exercise, setNumber }) => {
+    try {
+      const totalSets = getExerciseTotalSets(exercise);
+      const currentCompletedSets = getExerciseCompletedSets(exercise);
+      const nextCompletedSets = Math.min(
+        totalSets,
+        Math.max(currentCompletedSets, setNumber)
+      );
+
+      animateLayout();
+
+      setSetProgressByExerciseId((prev) => ({
+        ...prev,
+        [exercise.id]: nextCompletedSets,
+      }));
+
+      if (nextCompletedSets >= totalSets && !exercise.completed) {
+        setExercises((prev) =>
+          prev.map((item) =>
+            item.id === exercise.id ? { ...item, completed: true } : item
+          )
+        );
+
+        await updateExercise({
+          uid: user.uid,
+          dayId,
+          exerciseId: exercise.id,
+          data: {
+            completed: true,
+          },
+        });
+      }
+    } catch (err) {
+      setError(err?.message || "No se pudo actualizar la serie.");
+      await loadExercises();
+    }
+  };
+
+  const handleResetExerciseSets = async (exercise) => {
+    try {
+      animateLayout();
+
+      setSetProgressByExerciseId((prev) => ({
+        ...prev,
+        [exercise.id]: 0,
+      }));
+
+      if (exercise.completed) {
+        setExercises((prev) =>
+          prev.map((item) =>
+            item.id === exercise.id ? { ...item, completed: false } : item
+          )
+        );
+
+        await updateExercise({
+          uid: user.uid,
+          dayId,
+          exerciseId: exercise.id,
+          data: {
+            completed: false,
+          },
+        });
+      }
+    } catch (err) {
+      setError(err?.message || "No se pudo reiniciar las series.");
       await loadExercises();
     }
   };
@@ -377,6 +677,13 @@ export default function WorkoutDayScreen({ navigation, route }) {
           item.id === exercise.id ? { ...item, [field]: nextValue } : item
         )
       );
+
+      if (field === "sets") {
+        setSetProgressByExerciseId((prev) => ({
+          ...prev,
+          [exercise.id]: Math.min(Number(prev?.[exercise.id]) || 0, nextValue),
+        }));
+      }
 
       await updateExercise({
         uid: user.uid,
@@ -442,12 +749,86 @@ export default function WorkoutDayScreen({ navigation, route }) {
   };
 
   const handleToggleWorkoutTimer = () => {
-    setIsWorkoutRunning((prev) => !prev);
+    const now = Date.now();
+
+    if (isWorkoutRunning) {
+      const elapsedSeconds = workoutStartedAt
+        ? Math.floor((now - workoutStartedAt) / 1000)
+        : 0;
+
+      const nextBaseSeconds = workoutBaseSeconds + elapsedSeconds;
+
+      setWorkoutBaseSeconds(nextBaseSeconds);
+      setWorkoutSeconds(nextBaseSeconds);
+      setWorkoutStartedAt(null);
+      setIsWorkoutRunning(false);
+      return;
+    }
+
+    setWorkoutStartedAt(now);
+    setIsWorkoutRunning(true);
   };
 
   const handleResetWorkoutTimer = () => {
     setIsWorkoutRunning(false);
+    setWorkoutStartedAt(null);
+    setWorkoutBaseSeconds(0);
     setWorkoutSeconds(0);
+  };
+
+  const handleStartRestTimer = (exercise) => {
+    const durationSeconds = Math.max(1, Number(exercise?.restSeconds) || 60);
+    const endAt = Date.now() + durationSeconds * 1000;
+
+    setRestExercise({
+      id: exercise.id,
+      name: exercise.name || "Ejercicio",
+    });
+    setRestDurationSeconds(durationSeconds);
+    setRestRemainingSeconds(durationSeconds);
+    setRestEndAt(endAt);
+    setRestFinished(false);
+    setIsRestRunning(true);
+    setRestTimerVisible(true);
+  };
+
+  const handleClearRestTimer = () => {
+    setRestTimerVisible(false);
+    setIsRestRunning(false);
+    setRestFinished(false);
+    setRestEndAt(null);
+    setRestRemainingSeconds(restDurationSeconds);
+    setRestExercise(null);
+  };
+
+  const handlePressFloatingRestTimer = () => {
+    if (restFinished) {
+      handleClearRestTimer();
+      return;
+    }
+
+    setRestTimerVisible(true);
+  };
+
+  const handleCloseRestTimer = () => {
+    setRestTimerVisible(false);
+  };
+
+  const handleStopRestTimer = () => {
+    setIsRestRunning(false);
+    setRestFinished(false);
+    setRestEndAt(null);
+    setRestRemainingSeconds(restDurationSeconds);
+  };
+
+  const handleRestartRestTimer = () => {
+    const durationSeconds = Math.max(1, Number(restDurationSeconds) || 60);
+    const endAt = Date.now() + durationSeconds * 1000;
+
+    setRestRemainingSeconds(durationSeconds);
+    setRestEndAt(endAt);
+    setRestFinished(false);
+    setIsRestRunning(true);
   };
 
   const openFinishDialog = () => {
@@ -480,11 +861,16 @@ export default function WorkoutDayScreen({ navigation, route }) {
     try {
       setFinishingWorkout(true);
 
+      const finalWorkoutSeconds =
+        isWorkoutRunning && workoutStartedAt
+          ? workoutBaseSeconds + Math.floor((Date.now() - workoutStartedAt) / 1000)
+          : workoutSeconds;
+
       await createWorkoutSession({
         uid: user.uid,
         dayId,
         dayName,
-        durationSeconds: workoutSeconds,
+        durationSeconds: finalWorkoutSeconds,
         exercises,
       });
 
@@ -495,10 +881,22 @@ export default function WorkoutDayScreen({ navigation, route }) {
       });
 
       setIsWorkoutRunning(false);
+      setWorkoutStartedAt(null);
+      setWorkoutBaseSeconds(0);
       setWorkoutSeconds(0);
       setTimerVisible(false);
+
+      setRestTimerVisible(false);
+      setIsRestRunning(false);
+      setRestFinished(false);
+      setRestEndAt(null);
+      setRestRemainingSeconds(60);
+      setRestExercise(null);
+
+      setSetProgressByExerciseId({});
       setFinishDialogVisible(false);
 
+      await clearLocalState();
       await loadExercises();
 
       Alert.alert(
@@ -519,6 +917,11 @@ export default function WorkoutDayScreen({ navigation, route }) {
     const completed = !!exercise.completed;
     const isFirst = index === 0;
     const isLast = index === exercises.length - 1;
+
+    const totalSets = getExerciseTotalSets(exercise);
+    const completedSets = getExerciseCompletedSets(exercise);
+    const remainingSets = Math.max(0, totalSets - completedSets);
+    const setsProgress = totalSets > 0 ? completedSets / totalSets : 0;
 
     return (
       <Card
@@ -586,7 +989,12 @@ export default function WorkoutDayScreen({ navigation, route }) {
                 icon="arrow-up"
                 size={20}
                 disabled={isFirst || reordering}
-                style={styles.smallActionIcon}
+                style={[
+                  styles.smallActionIcon,
+                  {
+                    backgroundColor: mutedSurface,
+                  },
+                ]}
                 iconColor={
                   isFirst
                     ? theme.colors.outline
@@ -599,12 +1007,16 @@ export default function WorkoutDayScreen({ navigation, route }) {
                   })
                 }
               />
-
-              <IconButton
+                            <IconButton
                 icon="arrow-down"
                 size={20}
                 disabled={isLast || reordering}
-                style={styles.smallActionIcon}
+                style={[
+                  styles.smallActionIcon,
+                  {
+                    backgroundColor: mutedSurface,
+                  },
+                ]}
                 iconColor={
                   isLast
                     ? theme.colors.outline
@@ -621,7 +1033,12 @@ export default function WorkoutDayScreen({ navigation, route }) {
               <IconButton
                 icon="pencil-outline"
                 size={21}
-                style={styles.smallActionIcon}
+                style={[
+                  styles.smallActionIcon,
+                  {
+                    backgroundColor: softPrimary,
+                  },
+                ]}
                 iconColor={theme.colors.primary}
                 onPress={() => openEditDialog(exercise)}
               />
@@ -629,7 +1046,12 @@ export default function WorkoutDayScreen({ navigation, route }) {
               <IconButton
                 icon="trash-can-outline"
                 size={21}
-                style={styles.smallActionIcon}
+                style={[
+                  styles.smallActionIcon,
+                  {
+                    backgroundColor: dangerSoft,
+                  },
+                ]}
                 iconColor={dangerColor}
                 onPress={() => handleDeleteExercise(exercise)}
               />
@@ -643,41 +1065,27 @@ export default function WorkoutDayScreen({ navigation, route }) {
                 color: theme.colors.onSurface,
                 fontWeight: "900",
                 lineHeight: 28,
+                letterSpacing: -0.35,
                 textDecorationLine: completed ? "line-through" : "none",
               }}
             >
               {exercise.name}
             </Text>
 
-            <View style={styles.exerciseMetaRow}>
-              <View
-                style={[
-                  styles.restPill,
-                  {
-                    backgroundColor: mutedSurface,
-                    borderColor: premiumBorder,
-                  },
-                ]}
-              >
-                <IconButton
-                  icon="timer-outline"
-                  size={15}
-                  iconColor={theme.colors.primary}
-                  style={styles.restPillIcon}
-                />
+            <Text
+              variant="bodySmall"
+              style={{
+                color: theme.colors.onSurfaceVariant,
+                marginTop: 6,
+                lineHeight: 18,
+              }}
+            >
+              {exercise.sets || 0} series · {exercise.reps || 0} reps ·{" "}
+              {exercise.weight || 0}kg
+            </Text>
 
-                <Text
-                  variant="labelSmall"
-                  style={{
-                    color: theme.colors.onSurfaceVariant,
-                    fontWeight: "800",
-                  }}
-                >
-                  Descanso {exercise.restSeconds || 0}s
-                </Text>
-              </View>
-
-              {completed && (
+            {completed && (
+              <View style={styles.exerciseMetaRow}>
                 <View
                   style={[
                     styles.completedPill,
@@ -686,6 +1094,13 @@ export default function WorkoutDayScreen({ navigation, route }) {
                     },
                   ]}
                 >
+                  <IconButton
+                    icon="check-circle-outline"
+                    size={15}
+                    iconColor={successColor}
+                    style={styles.completedPillIcon}
+                  />
+
                   <Text
                     variant="labelSmall"
                     style={{
@@ -696,8 +1111,184 @@ export default function WorkoutDayScreen({ navigation, route }) {
                     Completado
                   </Text>
                 </View>
-              )}
+              </View>
+            )}
+          </View>
+
+          <View
+            style={[
+              styles.setsBox,
+              {
+                backgroundColor: completed ? premiumSurface : mutedSurface,
+                borderColor: completed ? theme.colors.primary : premiumBorder,
+              },
+            ]}
+          >
+            <View style={styles.setsHeader}>
+              <View style={styles.setsHeaderText}>
+                <Text
+                  variant="titleSmall"
+                  style={{
+                    color: theme.colors.onSurface,
+                    fontWeight: "900",
+                  }}
+                >
+                  Series
+                </Text>
+
+                <Text
+                  variant="bodySmall"
+                  style={{
+                    color: theme.colors.onSurfaceVariant,
+                    marginTop: 2,
+                  }}
+                >
+                  {completedSets}/{totalSets} hechas · {remainingSets} restante
+                  {remainingSets === 1 ? "" : "s"}
+                </Text>
+              </View>
+
+              <Button
+                mode="text"
+                compact
+                icon="restart"
+                disabled={completedSets === 0}
+                onPress={() => handleResetExerciseSets(exercise)}
+                textColor={theme.colors.primary}
+              >
+                Reiniciar
+              </Button>
             </View>
+
+            <ProgressBar
+              progress={setsProgress}
+              color={theme.colors.primary}
+              style={[
+                styles.setsProgressBar,
+                {
+                  backgroundColor: theme.dark
+                    ? "rgba(255,255,255,0.08)"
+                    : "rgba(15,23,42,0.08)",
+                },
+              ]}
+            />
+
+            <View style={styles.setButtonsGrid}>
+              {Array.from({ length: totalSets }).map((_, setIndex) => {
+                const setNumber = setIndex + 1;
+                const setDone = setNumber <= completedSets;
+
+                return (
+                  <TouchableRipple
+                    key={`${exercise.id}-set-${setNumber}`}
+                    borderless
+                    disabled={setDone}
+                    onPress={() =>
+                      handleCompleteSet({
+                        exercise,
+                        setNumber,
+                      })
+                    }
+                    style={[
+                      styles.setButton,
+                      {
+                        backgroundColor: setDone
+                          ? theme.colors.primary
+                          : theme.colors.surface,
+                        borderColor: setDone
+                          ? theme.colors.primary
+                          : premiumBorder,
+                        opacity: setDone ? 0.95 : 1,
+                      },
+                    ]}
+                  >
+                    <View style={styles.setButtonContent}>
+                      <IconButton
+                        icon={setDone ? "check-bold" : "dumbbell"}
+                        size={16}
+                        iconColor={
+                          setDone
+                            ? theme.colors.onPrimary
+                            : theme.colors.primary
+                        }
+                        style={styles.setButtonIcon}
+                      />
+
+                      <Text
+                        variant="labelMedium"
+                        style={{
+                          color: setDone
+                            ? theme.colors.onPrimary
+                            : theme.colors.onSurface,
+                          fontWeight: "900",
+                        }}
+                      >
+                        {setNumber}
+                      </Text>
+                    </View>
+                  </TouchableRipple>
+                );
+              })}
+            </View>
+
+            <TouchableRipple
+              borderless
+              onPress={() => handleStartRestTimer(exercise)}
+              style={[
+                styles.restButtonTouchable,
+                {
+                  backgroundColor: softPrimary,
+                  borderColor: theme.colors.primary,
+                },
+              ]}
+            >
+              <View style={styles.restButtonPremiumContent}>
+                <View
+                  style={[
+                    styles.restButtonIconBox,
+                    {
+                      backgroundColor: theme.colors.primary,
+                    },
+                  ]}
+                >
+                  <IconButton
+                    icon="timer-sand"
+                    size={18}
+                    iconColor={theme.colors.onPrimary}
+                    style={styles.restButtonIcon}
+                  />
+                </View>
+
+                <View style={styles.restButtonTextBox}>
+                  <Text
+                    variant="labelLarge"
+                    style={{
+                      color: theme.colors.onSurface,
+                      fontWeight: "900",
+                    }}
+                  >
+                    Descansar
+                  </Text>
+
+                  <Text
+                    variant="bodySmall"
+                    style={{
+                      color: theme.colors.onSurfaceVariant,
+                      marginTop: 1,
+                    }}
+                  >
+                    Cuenta regresiva de {exercise.restSeconds || 0}s
+                  </Text>
+                </View>
+
+                <IconButton
+                  icon="chevron-right"
+                  size={22}
+                  iconColor={theme.colors.primary}
+                  style={styles.restButtonArrow}
+                />
+              </View>
+            </TouchableRipple>
           </View>
 
           <View style={styles.metricsGrid}>
@@ -721,7 +1312,13 @@ export default function WorkoutDayScreen({ navigation, route }) {
                 <IconButton
                   icon="minus"
                   size={17}
-                  style={styles.counterButton}
+                  style={[
+                    styles.counterButton,
+                    {
+                      backgroundColor: elevatedSurface,
+                    },
+                  ]}
+                  iconColor={theme.colors.onSurfaceVariant}
                   onPress={() =>
                     handleQuickChange({
                       exercise,
@@ -747,7 +1344,13 @@ export default function WorkoutDayScreen({ navigation, route }) {
                 <IconButton
                   icon="plus"
                   size={17}
-                  style={styles.counterButton}
+                  style={[
+                    styles.counterButton,
+                    {
+                      backgroundColor: elevatedSurface,
+                    },
+                  ]}
+                  iconColor={theme.colors.primary}
                   onPress={() =>
                     handleQuickChange({
                       exercise,
@@ -759,7 +1362,8 @@ export default function WorkoutDayScreen({ navigation, route }) {
                 />
               </View>
             </View>
-                        <View
+
+            <View
               style={[
                 styles.metricBox,
                 {
@@ -779,7 +1383,13 @@ export default function WorkoutDayScreen({ navigation, route }) {
                 <IconButton
                   icon="minus"
                   size={17}
-                  style={styles.counterButton}
+                  style={[
+                    styles.counterButton,
+                    {
+                      backgroundColor: elevatedSurface,
+                    },
+                  ]}
+                  iconColor={theme.colors.onSurfaceVariant}
                   onPress={() =>
                     handleQuickChange({
                       exercise,
@@ -805,7 +1415,13 @@ export default function WorkoutDayScreen({ navigation, route }) {
                 <IconButton
                   icon="plus"
                   size={17}
-                  style={styles.counterButton}
+                  style={[
+                    styles.counterButton,
+                    {
+                      backgroundColor: elevatedSurface,
+                    },
+                  ]}
+                  iconColor={theme.colors.primary}
                   onPress={() =>
                     handleQuickChange({
                       exercise,
@@ -817,13 +1433,12 @@ export default function WorkoutDayScreen({ navigation, route }) {
                 />
               </View>
             </View>
-
-            <View
+                        <View
               style={[
                 styles.metricBox,
                 {
-                  backgroundColor: softPrimary,
-                  borderColor: theme.colors.primary,
+                  backgroundColor: mutedSurface,
+                  borderColor: premiumBorder,
                 },
               ]}
             >
@@ -838,7 +1453,13 @@ export default function WorkoutDayScreen({ navigation, route }) {
                 <IconButton
                   icon="minus"
                   size={17}
-                  style={styles.counterButton}
+                  style={[
+                    styles.counterButton,
+                    {
+                      backgroundColor: elevatedSurface,
+                    },
+                  ]}
+                  iconColor={theme.colors.onSurfaceVariant}
                   onPress={() =>
                     handleQuickChange({
                       exercise,
@@ -854,7 +1475,7 @@ export default function WorkoutDayScreen({ navigation, route }) {
                   style={[
                     styles.counterValue,
                     {
-                      color: theme.colors.primary,
+                      color: theme.colors.onSurface,
                     },
                   ]}
                 >
@@ -864,7 +1485,13 @@ export default function WorkoutDayScreen({ navigation, route }) {
                 <IconButton
                   icon="plus"
                   size={17}
-                  style={styles.counterButton}
+                  style={[
+                    styles.counterButton,
+                    {
+                      backgroundColor: elevatedSurface,
+                    },
+                  ]}
+                  iconColor={theme.colors.primary}
                   onPress={() =>
                     handleQuickChange({
                       exercise,
@@ -1166,22 +1793,22 @@ export default function WorkoutDayScreen({ navigation, route }) {
                   },
                 ]}
               >
-                <Card.Content>
+                <Card.Content style={styles.emptyContent}>
                   <View
                     style={[
                       styles.emptyIcon,
-                      { backgroundColor: softPrimary },
+                      {
+                        backgroundColor: softPrimary,
+                        borderColor: premiumBorder,
+                      },
                     ]}
                   >
-                    <Text
-                      variant="headlineMedium"
-                      style={{
-                        color: theme.colors.primary,
-                        fontWeight: "900",
-                      }}
-                    >
-                      +
-                    </Text>
+                    <IconButton
+                      icon="plus"
+                      size={30}
+                      iconColor={theme.colors.primary}
+                      style={styles.emptyIconButton}
+                    />
                   </View>
 
                   <Text
@@ -1219,7 +1846,7 @@ export default function WorkoutDayScreen({ navigation, route }) {
             ) : (
               <>
                 <View style={styles.sectionHeader}>
-                  <View>
+                  <View style={styles.sectionHeaderText}>
                     <Text
                       variant="titleLarge"
                       style={{
@@ -1237,7 +1864,7 @@ export default function WorkoutDayScreen({ navigation, route }) {
                         marginTop: 2,
                       }}
                     >
-                      Usá las flechas para ajustar el orden.
+                      Marcá series, descansá y ajustá el orden.
                     </Text>
                   </View>
 
@@ -1257,31 +1884,33 @@ export default function WorkoutDayScreen({ navigation, route }) {
                   ]}
                 >
                   <Card.Content>
-                    <View
-                      style={[
-                        styles.finishIconBox,
-                        {
-                          backgroundColor: successSoft,
-                        },
-                      ]}
-                    >
-                      <IconButton
-                        icon="check-circle-outline"
-                        size={23}
-                        iconColor={successColor}
-                        style={styles.finishIcon}
-                      />
-                    </View>
+                    <View style={styles.finishTitleRow}>
+                      <View
+                        style={[
+                          styles.finishIconBox,
+                          {
+                            backgroundColor: successSoft,
+                          },
+                        ]}
+                      >
+                        <IconButton
+                          icon="check-circle-outline"
+                          size={23}
+                          iconColor={successColor}
+                          style={styles.finishIcon}
+                        />
+                      </View>
 
-                    <Text
-                      variant="titleLarge"
-                      style={{
-                        color: theme.colors.onSurface,
-                        fontWeight: "900",
-                      }}
-                    >
-                      Finalizar día
-                    </Text>
+                      <Text
+                        variant="titleLarge"
+                        style={{
+                          color: theme.colors.onSurface,
+                          fontWeight: "900",
+                        }}
+                      >
+                        Finalizar día
+                      </Text>
+                    </View>
 
                     <Text
                       variant="bodyMedium"
@@ -1352,28 +1981,67 @@ export default function WorkoutDayScreen({ navigation, route }) {
         </View>
       </TouchableRipple>
 
-      <Portal>
-        <Modal
-          visible={timerVisible}
-          onDismiss={() => setTimerVisible(false)}
-          theme={{
-            colors: {
-              backdrop: "rgba(0,0,0,0.72)",
+      {isRestRunning || restFinished ? (
+        <TouchableRipple
+          borderless
+          onPress={handlePressFloatingRestTimer}
+          style={[
+            styles.floatingRestTimer,
+            {
+              backgroundColor: restFinished
+                ? successColor
+                : theme.colors.surface,
+              borderColor: restFinished ? successColor : premiumBorder,
             },
-          }}
-          contentContainerStyle={[
-            styles.timerModal,
-            { backgroundColor: theme.colors.surface },
           ]}
         >
-          <View
-            style={[
-              styles.timerIconBox,
-              {
-                backgroundColor: softPrimary,
+          <View style={styles.floatingTimerContent}>
+            <IconButton
+              icon={restFinished ? "check-circle-outline" : "timer-sand"}
+              size={20}
+              iconColor={
+                restFinished ? theme.colors.onPrimary : theme.colors.primary
+              }
+              style={styles.floatingTimerIcon}
+            />
+
+            <Text
+              variant="labelLarge"
+              style={{
+                color: restFinished
+                  ? theme.colors.onPrimary
+                  : theme.colors.primary,
+                fontWeight: "900",
+              }}
+            >
+              {restFinished ? "Listo" : formatTime(restRemainingSeconds)}
+            </Text>
+          </View>
+        </TouchableRipple>
+      ) : null}
+
+      <Portal>
+          <Modal
+            visible={timerVisible}
+            onDismiss={() => setTimerVisible(false)}
+            theme={{
+              colors: {
+                backdrop: "rgba(0,0,0,0.72)",
               },
+            }}
+            contentContainerStyle={[
+              styles.timerModal,
+              { backgroundColor: theme.colors.surface },
             ]}
           >
+            <View
+              style={[
+                styles.timerIconBox,
+                {
+                  backgroundColor: softPrimary,
+                },
+              ]}
+            >
             <IconButton
               icon="timer-outline"
               size={28}
@@ -1404,7 +2072,8 @@ export default function WorkoutDayScreen({ navigation, route }) {
                   lineHeight: 18,
                 }}
               >
-                Si cerrás este panel, el tiempo sigue corriendo.
+                Si cerrás este panel o salís de la app, el tiempo sigue
+                corriendo.
               </Text>
             </View>
           </View>
@@ -1453,6 +2122,127 @@ export default function WorkoutDayScreen({ navigation, route }) {
           </Button>
         </Modal>
 
+        <Modal
+          visible={restTimerVisible}
+          onDismiss={handleCloseRestTimer}
+          theme={{
+            colors: {
+              backdrop: "rgba(0,0,0,0.72)",
+            },
+          }}
+          contentContainerStyle={[
+            styles.timerModal,
+            { backgroundColor: theme.colors.surface },
+          ]}
+        >
+          <View
+            style={[
+              styles.timerIconBox,
+              {
+                backgroundColor: restFinished ? successSoft : softPrimary,
+              },
+            ]}
+          >
+            <IconButton
+              icon={restFinished ? "check-circle-outline" : "timer-sand"}
+              size={28}
+              iconColor={restFinished ? successColor : theme.colors.primary}
+              style={styles.timerIcon}
+            />
+          </View>
+
+          <View style={styles.timerModalHeader}>
+            <View style={styles.timerModalTitleBox}>
+              <Text
+                variant="titleLarge"
+                style={{
+                  color: theme.colors.onSurface,
+                  fontWeight: "900",
+                  textAlign: "center",
+                }}
+              >
+                {restFinished ? "Descanso terminado" : "Descanso"}
+              </Text>
+
+              <Text
+                variant="bodySmall"
+                style={{
+                  color: theme.colors.onSurfaceVariant,
+                  marginTop: 4,
+                  textAlign: "center",
+                  lineHeight: 18,
+                }}
+              >
+                {restExercise?.name || "Ejercicio"} · {restDurationSeconds}s
+              </Text>
+            </View>
+          </View>
+
+          <Text
+            variant="displayLarge"
+            style={[
+              styles.bigTimer,
+              {
+                color: restFinished ? successColor : theme.colors.primary,
+              },
+            ]}
+          >
+            {restFinished ? "LISTO" : formatTime(restRemainingSeconds)}
+          </Text>
+
+          <Text
+            variant="bodyMedium"
+            style={{
+              color: restFinished
+                ? successColor
+                : theme.colors.onSurfaceVariant,
+              textAlign: "center",
+              fontWeight: restFinished ? "900" : "600",
+              marginBottom: 18,
+            }}
+          >
+            {restFinished
+              ? "Ya podés empezar la próxima serie."
+              : "Respirá y preparate para la siguiente serie."}
+          </Text>
+
+          <View style={styles.timerActions}>
+            <Button
+              mode="contained"
+              icon="restart"
+              style={styles.timerMainButton}
+              contentStyle={styles.timerButtonContent}
+              onPress={handleRestartRestTimer}
+            >
+              Reiniciar
+            </Button>
+
+            <Button
+              mode="outlined"
+              icon={restFinished ? "close" : "stop"}
+              style={[
+                styles.timerSecondaryButton,
+                {
+                  borderColor: premiumBorder,
+                },
+              ]}
+              contentStyle={styles.timerButtonContent}
+              onPress={restFinished ? handleClearRestTimer : handleStopRestTimer}
+            >
+              {restFinished ? "Cerrar" : "Detener"}
+            </Button>
+          </View>
+
+          <Button
+            mode="text"
+            icon="close"
+            style={styles.timerCloseButton}
+            onPress={handleCloseRestTimer}
+          >
+            Ocultar
+          </Button>
+        </Modal>
+
         <Dialog
           visible={finishDialogVisible}
           onDismiss={closeFinishDialog}
@@ -1495,124 +2285,193 @@ export default function WorkoutDayScreen({ navigation, route }) {
           </Dialog.Actions>
         </Dialog>
 
-        <Dialog
-          visible={dialogVisible}
-          onDismiss={closeDialog}
-          style={[
-            styles.premiumDialog,
-            styles.exerciseDialog,
-            {
-              backgroundColor: theme.colors.surface,
-            },
-          ]}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          pointerEvents="box-none"
+          style={styles.dialogKeyboardAvoiding}
         >
-          <Dialog.Title>
-            {isEditing ? "Editar ejercicio" : "Nuevo ejercicio"}
-          </Dialog.Title>
-
-          <Dialog.ScrollArea style={styles.dialogScrollArea}>
-            <ScrollView
-              contentContainerStyle={styles.dialogContent}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              <TextInput
-                mode="outlined"
-                label="Nombre del ejercicio"
-                value={exerciseName}
-                onChangeText={setExerciseName}
-                placeholder="Ej: Sentadilla"
-                style={styles.input}
-                outlineStyle={styles.inputOutline}
-              />
-
-              <View style={styles.formGrid}>
-                <TextInput
-                  mode="outlined"
-                  label="Series"
-                  value={sets}
-                  onChangeText={setSets}
-                  keyboardType="numeric"
-                  style={styles.formInput}
-                  outlineStyle={styles.inputOutline}
-                />
-
-                <TextInput
-                  mode="outlined"
-                  label="Reps"
-                  value={reps}
-                  onChangeText={setReps}
-                  keyboardType="numeric"
-                  style={styles.formInput}
-                  outlineStyle={styles.inputOutline}
-                />
+          <Dialog
+            visible={dialogVisible}
+            onDismiss={closeDialog}
+            style={[
+              styles.premiumDialog,
+              styles.exerciseDialog,
+              {
+                backgroundColor: theme.colors.surface,
+              },
+            ]}
+          >
+            <View style={styles.exerciseDialogHeader}>
+              <View
+                style={[
+                  styles.exerciseDialogIconBox,
+                  {
+                    backgroundColor: softPrimary,
+                  },
+                ]}
+              >
+                {saving ? (
+                  <ActivityIndicator size={24} color={theme.colors.primary} />
+                ) : (
+                  <IconButton
+                    icon={isEditing ? "pencil-outline" : "plus"}
+                    size={26}
+                    iconColor={theme.colors.primary}
+                    style={styles.exerciseDialogIcon}
+                  />
+                )}
               </View>
 
-              <View style={styles.formGrid}>
+              <Text
+                variant="titleLarge"
+                style={{
+                  color: theme.colors.onSurface,
+                  fontWeight: "900",
+                  textAlign: "center",
+                  letterSpacing: -0.3,
+                }}
+              >
+                {isEditing ? "Editar ejercicio" : "Nuevo ejercicio"}
+              </Text>
+
+              <Text
+                variant="bodyMedium"
+                style={{
+                  color: theme.colors.onSurfaceVariant,
+                  textAlign: "center",
+                  marginTop: 6,
+                  lineHeight: 20,
+                }}
+              >
+                Cargá series, repeticiones, peso, descanso y notas.
+              </Text>
+            </View>
+
+            <Dialog.ScrollArea style={styles.dialogScrollArea}>
+              <ScrollView
+                contentContainerStyle={styles.dialogContent}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
                 <TextInput
                   mode="outlined"
-                  label="Peso"
-                  value={weight}
-                  onChangeText={setWeight}
-                  keyboardType="decimal-pad"
-                  style={styles.formInput}
-                  right={<TextInput.Affix text="kg" />}
+                  label="Nombre del ejercicio"
+                  value={exerciseName}
+                  onChangeText={setExerciseName}
+                  placeholder="Ej: Sentadilla"
+                  style={styles.input}
                   outlineStyle={styles.inputOutline}
                 />
 
+                <View style={styles.formGrid}>
+                  <TextInput
+                    mode="outlined"
+                    label="Series"
+                    value={sets}
+                    onChangeText={setSets}
+                    keyboardType="numeric"
+                    style={styles.formInput}
+                    outlineStyle={styles.inputOutline}
+                  />
+
+                  <TextInput
+                    mode="outlined"
+                    label="Reps"
+                    value={reps}
+                    onChangeText={setReps}
+                    keyboardType="numeric"
+                    style={styles.formInput}
+                    outlineStyle={styles.inputOutline}
+                  />
+                </View>
+
+                <View style={styles.formGrid}>
+                  <TextInput
+                    mode="outlined"
+                    label="Peso"
+                    value={weight}
+                    onChangeText={setWeight}
+                    keyboardType="decimal-pad"
+                    style={styles.formInput}
+                    right={<TextInput.Affix text="kg" />}
+                    outlineStyle={styles.inputOutline}
+                  />
+
+                  <TextInput
+                    mode="outlined"
+                    label="Descanso"
+                    value={restSeconds}
+                    onChangeText={setRestSeconds}
+                    keyboardType="numeric"
+                    style={styles.formInput}
+                    right={<TextInput.Affix text="s" />}
+                    outlineStyle={styles.inputOutline}
+                  />
+                </View>
+
                 <TextInput
                   mode="outlined"
-                  label="Descanso"
-                  value={restSeconds}
-                  onChangeText={setRestSeconds}
-                  keyboardType="numeric"
-                  style={styles.formInput}
-                  right={<TextInput.Affix text="s" />}
+                  label="Notas"
+                  value={notes}
+                  onChangeText={setNotes}
+                  multiline
+                  numberOfLines={3}
+                  style={styles.input}
                   outlineStyle={styles.inputOutline}
                 />
-              </View>
 
-              <TextInput
+                {!!error && (
+                  <View
+                    style={[
+                      styles.dialogErrorBox,
+                      {
+                        backgroundColor: theme.colors.errorContainer,
+                      },
+                    ]}
+                  >
+                    <Text
+                      variant="bodySmall"
+                      style={{
+                        color: theme.colors.onErrorContainer,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {error}
+                    </Text>
+                  </View>
+                )}
+              </ScrollView>
+            </Dialog.ScrollArea>
+
+            <View style={styles.dialogActionsCustom}>
+              <Button
                 mode="outlined"
-                label="Notas"
-                value={notes}
-                onChangeText={setNotes}
-                multiline
-                numberOfLines={3}
-                style={styles.input}
-                outlineStyle={styles.inputOutline}
-              />
+                disabled={saving}
+                onPress={closeDialog}
+                style={[
+                  styles.dialogActionButton,
+                  {
+                    borderColor: premiumBorder,
+                  },
+                ]}
+                contentStyle={styles.dialogActionContent}
+              >
+                Cancelar
+              </Button>
 
-              {!!error && (
-                <Text
-                  variant="bodySmall"
-                  style={{
-                    color: theme.colors.error,
-                    marginTop: 4,
-                    fontWeight: "700",
-                  }}
-                >
-                  {error}
-                </Text>
-              )}
-            </ScrollView>
-          </Dialog.ScrollArea>
-
-          <Dialog.Actions>
-            <Button disabled={saving} onPress={closeDialog}>
-              Cancelar
-            </Button>
-
-            <Button
-              mode="contained"
-              loading={saving}
-              disabled={saving}
-              onPress={handleSaveExercise}
-            >
-              Guardar
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
+              <Button
+                mode="contained"
+                loading={saving}
+                disabled={saving}
+                onPress={handleSaveExercise}
+                style={styles.dialogActionButton}
+                contentStyle={styles.dialogActionContent}
+              >
+                Guardar
+              </Button>
+            </View>
+          </Dialog>
+        </KeyboardAvoidingView>
       </Portal>
     </View>
   );
@@ -1622,7 +2481,7 @@ const styles = StyleSheet.create({
   container: {
     padding: 20,
     paddingTop: 50,
-    paddingBottom: 150,
+    paddingBottom: 165,
   },
 
   header: {
@@ -1745,6 +2604,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
+  finishTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+
   errorCard: {
     borderRadius: 20,
     marginBottom: 14,
@@ -1755,27 +2620,46 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
 
+  emptyContent: {
+    alignItems: "center",
+    paddingVertical: 10,
+  },
+
   emptyIcon: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 18,
+    alignSelf: "center",
+  },
+
+  emptyIconButton: {
+    width: 72,
+    height: 72,
+    margin: 0,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   emptyTitle: {
     fontWeight: "900",
     marginBottom: 8,
+    textAlign: "center",
+    letterSpacing: -0.3,
   },
 
   emptyText: {
     lineHeight: 21,
+    textAlign: "center",
   },
 
   emptyButton: {
     borderRadius: 18,
     marginTop: 22,
+    alignSelf: "stretch",
   },
 
   buttonContent: {
@@ -1790,8 +2674,13 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
 
+  sectionHeaderText: {
+    flex: 1,
+    marginRight: 12,
+  },
+
   exerciseCard: {
-    borderRadius: 28,
+    borderRadius: 30,
     marginBottom: 14,
     borderWidth: 1,
   },
@@ -1803,7 +2692,7 @@ const styles = StyleSheet.create({
   exerciseTopActions: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: 14,
   },
 
   completeButton: {
@@ -1831,10 +2720,14 @@ const styles = StyleSheet.create({
     marginLeft: "auto",
     flexDirection: "row",
     alignItems: "center",
+    gap: 4,
   },
 
   smallActionIcon: {
-    margin: -2,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    margin: 0,
   },
 
   inlineIcon: {
@@ -1853,27 +2746,111 @@ const styles = StyleSheet.create({
     gap: 8,
   },
 
-  restPill: {
+  completedPill: {
     minHeight: 30,
-    paddingRight: 10,
     borderRadius: 999,
+    paddingRight: 12,
+    paddingLeft: 4,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+  },
+
+  completedPillIcon: {
+    width: 24,
+    height: 24,
+    margin: 0,
+    marginRight: 2,
+  },
+
+  setsBox: {
+    marginTop: 16,
+    borderRadius: 24,
     borderWidth: 1,
+    padding: 14,
+  },
+
+  setsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+
+  setsHeaderText: {
+    flex: 1,
+    marginRight: 8,
+  },
+
+  setsProgressBar: {
+    height: 8,
+    borderRadius: 999,
+    marginBottom: 12,
+  },
+
+  setButtonsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+
+  setButton: {
+    minWidth: 48,
+    minHeight: 42,
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+
+  setButtonContent: {
+    minHeight: 42,
+    paddingHorizontal: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  setButtonIcon: {
+    width: 22,
+    height: 22,
+    margin: 0,
+    marginRight: 3,
+  },
+
+  restButtonTouchable: {
+    borderRadius: 20,
+    borderWidth: 1,
+    marginTop: 14,
+    overflow: "hidden",
+  },
+
+  restButtonPremiumContent: {
+    minHeight: 62,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     flexDirection: "row",
     alignItems: "center",
   },
 
-  restPillIcon: {
-    width: 25,
-    height: 25,
+  restButtonIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+
+  restButtonIcon: {
     margin: 0,
   },
 
-  completedPill: {
-    minHeight: 30,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    alignItems: "center",
-    justifyContent: "center",
+  restButtonTextBox: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  restButtonArrow: {
+    margin: 0,
   },
 
   metricsGrid: {
@@ -1897,6 +2874,9 @@ const styles = StyleSheet.create({
   },
 
   counterButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     margin: 0,
   },
 
@@ -1928,14 +2908,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
 
-  finishIconBox: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 14,
-  },
+finishIconBox: {
+  width: 42,
+  height: 42,
+  borderRadius: 21,
+  alignItems: "center",
+  justifyContent: "center",
+  marginRight: 10,
+},
 
   finishIcon: {
     margin: 0,
@@ -1950,6 +2930,22 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 18,
     bottom: 116,
+    borderRadius: 999,
+    borderWidth: 1,
+    elevation: 5,
+    shadowOpacity: 0.14,
+    shadowRadius: 12,
+    shadowOffset: {
+      width: 0,
+      height: 5,
+    },
+    overflow: "hidden",
+  },
+
+  floatingRestTimer: {
+    position: "absolute",
+    right: 18,
+    bottom: 174,
     borderRadius: 999,
     borderWidth: 1,
     elevation: 5,
@@ -2008,7 +3004,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     textAlign: "center",
     marginTop: 22,
-    marginBottom: 22,
+    marginBottom: 10,
     letterSpacing: -1.6,
   },
 
@@ -2036,24 +3032,50 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
 
+  dialogKeyboardAvoiding: {
+    flex: 1,
+    justifyContent: "center",
+  },
+
   premiumDialog: {
-    borderRadius: 24,
-    backgroundColor: "transparent",
+    borderRadius: 30,
+    overflow: "hidden",
+    marginHorizontal: 18,
   },
 
   exerciseDialog: {
-    maxHeight: "86%",
+    maxHeight: "88%",
+  },
+
+  exerciseDialogHeader: {
+    paddingHorizontal: 24,
+    paddingTop: 26,
+    paddingBottom: 12,
+    alignItems: "center",
+  },
+
+  exerciseDialogIconBox: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+
+  exerciseDialogIcon: {
+    margin: 0,
   },
 
   dialogScrollArea: {
-    maxHeight: 430,
+    maxHeight: 440,
     paddingHorizontal: 0,
   },
 
   dialogContent: {
     paddingHorizontal: 24,
-    paddingTop: 10,
-    paddingBottom: 8,
+    paddingTop: 12,
+    paddingBottom: 12,
   },
 
   input: {
@@ -2072,5 +3094,28 @@ const styles = StyleSheet.create({
 
   formInput: {
     flex: 1,
+  },
+
+  dialogErrorBox: {
+    borderRadius: 16,
+    padding: 12,
+    marginTop: 4,
+  },
+
+  dialogActionsCustom: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 24,
+  },
+
+  dialogActionButton: {
+    flex: 1,
+    borderRadius: 16,
+  },
+
+  dialogActionContent: {
+    height: 48,
   },
 });

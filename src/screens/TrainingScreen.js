@@ -1,11 +1,14 @@
+//Importaciones:
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
+  LayoutAnimation,
   Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
+  UIManager,
   View,
 } from "react-native";
 import {
@@ -20,8 +23,10 @@ import {
   TouchableRipple,
   useTheme,
 } from "react-native-paper";
+import { doc, serverTimestamp, writeBatch } from "firebase/firestore";
 
 import { useAuth } from "../context/AuthContext";
+import { db } from "../firebase/firebaseConfig";
 
 import {
   createTrainingDay,
@@ -29,6 +34,13 @@ import {
   getTrainingDays,
   updateTrainingDay,
 } from "../services/trainingDaysService";
+
+if (
+  Platform.OS === "android" &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 export default function TrainingScreen({ navigation }) {
   const theme = useTheme();
@@ -38,6 +50,7 @@ export default function TrainingScreen({ navigation }) {
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [reordering, setReordering] = useState(false);
 
   const [dialogVisible, setDialogVisible] = useState(false);
   const [dayName, setDayName] = useState("");
@@ -54,10 +67,12 @@ export default function TrainingScreen({ navigation }) {
 
   const sortedDays = useMemo(() => {
     return [...days].sort((a, b) => {
-      const orderA = a.order || 0;
-      const orderB = b.order || 0;
+      const orderA = Number(a.order) || 0;
+      const orderB = Number(b.order) || 0;
 
-      return orderA - orderB;
+      if (orderA !== orderB) return orderA - orderB;
+
+      return String(a.name || "").localeCompare(String(b.name || ""));
     });
   }, [days]);
 
@@ -77,11 +92,54 @@ export default function TrainingScreen({ navigation }) {
     ? "rgba(255,255,255,0.055)"
     : "rgba(15,23,42,0.035)";
 
+  const elevatedSurface = theme.dark
+    ? "rgba(255,255,255,0.075)"
+    : "rgba(255,255,255,0.98)";
+
   const dangerSoft = theme.dark
     ? "rgba(248,113,113,0.12)"
     : "rgba(220,38,38,0.07)";
 
   const dangerColor = theme.dark ? "#FCA5A5" : "#B91C1C";
+
+  const animateLayout = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+  };
+
+  const normalizeDaysOrder = (items = []) => {
+    return [...items]
+      .sort((a, b) => {
+        const orderA = Number(a.order) || 0;
+        const orderB = Number(b.order) || 0;
+
+        if (orderA !== orderB) return orderA - orderB;
+
+        return String(a.name || "").localeCompare(String(b.name || ""));
+      })
+      .map((item, index) => ({
+        ...item,
+        order: Number(item.order) || index + 1,
+      }));
+  };
+
+  const persistDaysOrder = async (nextDays) => {
+    if (!user?.uid) {
+      throw new Error("No se encontró el usuario.");
+    }
+
+    const batch = writeBatch(db);
+
+    nextDays.forEach((day, index) => {
+      const dayRef = doc(db, "users", user.uid, "trainingDays", day.id);
+
+      batch.update(dayRef, {
+        order: index + 1,
+        updatedAt: serverTimestamp(),
+      });
+    });
+
+    await batch.commit();
+  };
 
   const loadDays = useCallback(async () => {
     try {
@@ -90,8 +148,9 @@ export default function TrainingScreen({ navigation }) {
       if (!user?.uid) return;
 
       const response = await getTrainingDays(user.uid);
+      const safeDays = Array.isArray(response) ? response : [];
 
-      setDays(response);
+      setDays(normalizeDaysOrder(safeDays));
     } catch (err) {
       setError(err?.message || "No se pudieron cargar los días.");
     } finally {
@@ -152,7 +211,7 @@ export default function TrainingScreen({ navigation }) {
         await createTrainingDay({
           uid: user.uid,
           name: dayName,
-          order: days.length + 1,
+          order: sortedDays.length + 1,
         });
       }
 
@@ -162,6 +221,43 @@ export default function TrainingScreen({ navigation }) {
       setError(err?.message || "No se pudo guardar el día.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleMoveDay = async ({ day, direction }) => {
+    try {
+      if (!user?.uid || !day?.id) return;
+
+      const currentIndex = sortedDays.findIndex((item) => item.id === day.id);
+
+      if (currentIndex < 0) return;
+
+      const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+
+      if (nextIndex < 0 || nextIndex >= sortedDays.length) return;
+
+      setReordering(true);
+      setError("");
+      animateLayout();
+
+      const nextDays = [...sortedDays];
+      const [movedDay] = nextDays.splice(currentIndex, 1);
+
+      nextDays.splice(nextIndex, 0, movedDay);
+
+      const orderedDays = nextDays.map((item, index) => ({
+        ...item,
+        order: index + 1,
+      }));
+
+      setDays(orderedDays);
+
+      await persistDaysOrder(orderedDays);
+    } catch (err) {
+      setError(err?.message || "No se pudo guardar el nuevo orden.");
+      await loadDays();
+    } finally {
+      setReordering(false);
     }
   };
 
@@ -333,7 +429,13 @@ export default function TrainingScreen({ navigation }) {
               >
                 <Card.Content style={styles.emptyContent}>
                   <View
-                    style={[styles.emptyIcon, { backgroundColor: softPrimary }]}
+                    style={[
+                      styles.emptyIcon,
+                      {
+                        backgroundColor: softPrimary,
+                        borderColor: premiumBorder,
+                      },
+                    ]}
                   >
                     <IconButton
                       icon="plus"
@@ -378,7 +480,7 @@ export default function TrainingScreen({ navigation }) {
             ) : (
               <>
                 <View style={styles.sectionHeader}>
-                  <View>
+                  <View style={styles.sectionHeaderText}>
                     <Text
                       variant="titleLarge"
                       style={{
@@ -397,104 +499,258 @@ export default function TrainingScreen({ navigation }) {
                         marginTop: 2,
                       }}
                     >
-                      {sortedDays.length} en total
+                      {sortedDays.length} en total · el orden se refleja en
+                      Inicio
                     </Text>
                   </View>
+
+                  {reordering && <ActivityIndicator size="small" />}
                 </View>
 
-                {sortedDays.map((day, index) => (
-                  <TouchableRipple
-                    key={day.id}
-                    borderless
-                    onPress={() => goToDay(day)}
-                    style={[
-                      styles.dayCardTouchable,
-                      {
-                        backgroundColor: premiumSurface,
-                        borderColor: premiumBorder,
-                      },
-                    ]}
-                  >
-                    <View style={styles.dayCardContent}>
-                      <View
-                        style={[
-                          styles.dayNumber,
-                          { backgroundColor: softPrimary },
-                        ]}
-                      >
-                        <Text
-                          variant="titleMedium"
-                          style={{
-                            color: theme.colors.primary,
-                            fontWeight: "900",
-                          }}
-                        >
-                          {index + 1}
-                        </Text>
-                      </View>
+                {sortedDays.map((day, index) => {
+                  const isFirst = index === 0;
+                  const isLast = index === sortedDays.length - 1;
 
-                      <View style={styles.dayInfo}>
-                        <Text
-                          variant="titleLarge"
-                          style={{
-                            color: theme.colors.onSurface,
-                            fontWeight: "900",
-                            letterSpacing: -0.3,
-                            lineHeight: 27,
-                          }}
-                        >
-                          {day.name}
-                        </Text>
+                  return (
+                    <TouchableRipple
+                      key={day.id}
+                      borderless
+                      onPress={() => goToDay(day)}
+                      style={[
+                        styles.dayCardTouchable,
+                        {
+                          backgroundColor: premiumSurface,
+                          borderColor: premiumBorder,
+                        },
+                      ]}
+                    >
+                      <View style={styles.dayCardContent}>
+                        <View
+                          style={[
+                            styles.dayTopAccent,
+                            {
+                              backgroundColor: theme.colors.primary,
+                            },
+                          ]}
+                        />
 
-                        <View style={styles.dayMetaRow}>
-                          <IconButton
-                            icon="arm-flex-outline"
-                            size={16}
-                            iconColor={theme.colors.onSurfaceVariant}
-                            style={styles.dayMetaIcon}
-                          />
-
-                          <Text
-                            variant="bodyMedium"
-                            style={{
-                              color: theme.colors.onSurfaceVariant,
-                            }}
+                        <View style={styles.dayMainRow}>
+                          <View
+                            style={[
+                              styles.dayNumberBox,
+                              {
+                                backgroundColor: softPrimary,
+                                borderColor: premiumBorder,
+                              },
+                            ]}
                           >
-                            Tocá para ver ejercicios
-                          </Text>
+                            <Text
+                              variant="labelSmall"
+                              style={{
+                                color: theme.colors.primary,
+                                fontWeight: "900",
+                                letterSpacing: 0.6,
+                              }}
+                            >
+                              DÍA
+                            </Text>
+
+                            <Text
+                              variant="headlineSmall"
+                              style={{
+                                color: theme.colors.primary,
+                                fontWeight: "900",
+                                lineHeight: 30,
+                              }}
+                            >
+                              {index + 1}
+                            </Text>
+                          </View>
+
+                          <View style={styles.dayInfo}>
+                            <View style={styles.dayTitleRow}>
+                              <View style={styles.dayTitleBox}>
+                                <Text
+                                  variant="titleLarge"
+                                  style={{
+                                    color: theme.colors.onSurface,
+                                    fontWeight: "900",
+                                    letterSpacing: -0.4,
+                                    lineHeight: 28,
+                                  }}
+                                >
+                                  {day.name}
+                                </Text>
+                              </View>
+
+                              <View
+                                style={[
+                                  styles.dayOpenIcon,
+                                  {
+                                    backgroundColor: mutedSurface,
+                                    borderColor: premiumBorder,
+                                  },
+                                ]}
+                              >
+                                <IconButton
+                                  icon="chevron-right"
+                                  size={22}
+                                  iconColor={theme.colors.onSurfaceVariant}
+                                  style={styles.dayOpenIconButton}
+                                />
+                              </View>
+                            </View>
+
+                            <View style={styles.dayMetaRow}>
+                              <View
+                                style={[
+                                  styles.dayMetaPill,
+                                  {
+                                    backgroundColor: mutedSurface,
+                                    borderColor: premiumBorder,
+                                  },
+                                ]}
+                              >
+                                <IconButton
+                                  icon="arm-flex-outline"
+                                  size={16}
+                                  iconColor={theme.colors.primary}
+                                  style={styles.dayMetaIcon}
+                                />
+
+                                <Text
+                                  variant="labelMedium"
+                                  style={{
+                                    color: theme.colors.onSurfaceVariant,
+                                    fontWeight: "800",
+                                  }}
+                                >
+                                  Ver ejercicios
+                                </Text>
+                              </View>
+
+                              <View
+                                style={[
+                                  styles.dayMetaPill,
+                                  {
+                                    backgroundColor: mutedSurface,
+                                    borderColor: premiumBorder,
+                                  },
+                                ]}
+                              >
+                                <IconButton
+                                  icon="sort"
+                                  size={16}
+                                  iconColor={theme.colors.primary}
+                                  style={styles.dayMetaIcon}
+                                />
+
+                                <Text
+                                  variant="labelMedium"
+                                  style={{
+                                    color: theme.colors.onSurfaceVariant,
+                                    fontWeight: "800",
+                                  }}
+                                >
+                                  Orden {index + 1}
+                                </Text>
+                              </View>
+                            </View>
+                          </View>
+                        </View>
+
+                        <View
+                          style={[
+                            styles.dayActionsPanel,
+                            {
+                              backgroundColor: elevatedSurface,
+                              borderColor: premiumBorder,
+                            },
+                          ]}
+                        >
+                          <View style={styles.dayOrderActions}>
+                            <IconButton
+                              icon="arrow-up"
+                              size={20}
+                              disabled={isFirst || reordering}
+                              iconColor={
+                                isFirst
+                                  ? theme.colors.outline
+                                  : theme.colors.primary
+                              }
+                              onPress={() =>
+                                handleMoveDay({
+                                  day,
+                                  direction: "up",
+                                })
+                              }
+                              style={[
+                                styles.orderButton,
+                                {
+                                  backgroundColor: isFirst
+                                    ? mutedSurface
+                                    : softPrimary,
+                                },
+                              ]}
+                            />
+
+                            <IconButton
+                              icon="arrow-down"
+                              size={20}
+                              disabled={isLast || reordering}
+                              iconColor={
+                                isLast
+                                  ? theme.colors.outline
+                                  : theme.colors.primary
+                              }
+                              onPress={() =>
+                                handleMoveDay({
+                                  day,
+                                  direction: "down",
+                                })
+                              }
+                              style={[
+                                styles.orderButton,
+                                {
+                                  backgroundColor: isLast
+                                    ? mutedSurface
+                                    : softPrimary,
+                                },
+                              ]}
+                            />
+                          </View>
+                                                    <View style={styles.dayEditActions}>
+                            <IconButton
+                              icon="pencil-outline"
+                              size={21}
+                              iconColor={theme.colors.primary}
+                              onPress={() => openEditDialog(day)}
+                              style={[
+                                styles.editButton,
+                                {
+                                  backgroundColor: softPrimary,
+                                },
+                              ]}
+                            />
+
+                            <IconButton
+                              icon="trash-can-outline"
+                              size={21}
+                              iconColor={dangerColor}
+                              onPress={() => openDeleteDialog(day)}
+                              style={[
+                                styles.editButton,
+                                {
+                                  backgroundColor: dangerSoft,
+                                },
+                              ]}
+                            />
+                          </View>
                         </View>
                       </View>
-
-                      <View style={styles.dayActions}>
-                        <IconButton
-                          icon="pencil-outline"
-                          size={21}
-                          iconColor={theme.colors.primary}
-                          onPress={() => openEditDialog(day)}
-                          style={[
-                            styles.actionButton,
-                            {
-                              backgroundColor: softPrimary,
-                            },
-                          ]}
-                        />
-
-                        <IconButton
-                          icon="trash-can-outline"
-                          size={21}
-                          iconColor={dangerColor}
-                          onPress={() => openDeleteDialog(day)}
-                          style={[
-                            styles.actionButton,
-                            {
-                              backgroundColor: dangerSoft,
-                            },
-                          ]}
-                        />
-                      </View>
-                    </View>
-                  </TouchableRipple>
-                ))}
+                    </TouchableRipple>
+                  );
+                })}
               </>
             )}
           </>
@@ -831,30 +1087,39 @@ const styles = StyleSheet.create({
   },
 
   emptyContent: {
-    alignItems: "flex-start",
+    alignItems: "center",
+    paddingVertical: 10,
   },
 
   emptyIcon: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 18,
+    alignSelf: "center",
   },
 
   emptyIconButton: {
+    width: 72,
+    height: 72,
     margin: 0,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   emptyTitle: {
     fontWeight: "900",
     marginBottom: 8,
     letterSpacing: -0.3,
+    textAlign: "center",
   },
 
   emptyText: {
     lineHeight: 21,
+    textAlign: "center",
   },
 
   emptyButton: {
@@ -866,58 +1131,142 @@ const styles = StyleSheet.create({
   sectionHeader: {
     marginTop: 2,
     marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  sectionHeaderText: {
+    flex: 1,
+    marginRight: 12,
   },
 
   dayCardTouchable: {
-    borderRadius: 26,
+    borderRadius: 30,
     borderWidth: 1,
     overflow: "hidden",
-    marginBottom: 12,
+    marginBottom: 14,
   },
 
   dayCardContent: {
     padding: 16,
+    position: "relative",
+  },
+
+  dayTopAccent: {
+    position: "absolute",
+    top: 0,
+    left: 18,
+    right: 18,
+    height: 3,
+    borderBottomLeftRadius: 999,
+    borderBottomRightRadius: 999,
+    opacity: 0.85,
+  },
+
+  dayMainRow: {
     flexDirection: "row",
     alignItems: "flex-start",
   },
 
-  dayNumber: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+  dayNumberBox: {
+    width: 58,
+    minHeight: 72,
+    borderRadius: 22,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 14,
-    marginTop: 2,
+    paddingVertical: 10,
   },
 
   dayInfo: {
     flex: 1,
+    minWidth: 0,
+  },
+
+  dayTitleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+
+  dayTitleBox: {
+    flex: 1,
+    minWidth: 0,
+    paddingTop: 1,
     paddingRight: 8,
+  },
+
+  dayOpenIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 1,
+  },
+
+  dayOpenIconButton: {
+    margin: 0,
   },
 
   dayMetaRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 12,
+  },
+
+  dayMetaPill: {
+    minHeight: 34,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingRight: 12,
+    paddingLeft: 6,
+    flexDirection: "row",
     alignItems: "center",
-    marginTop: 5,
   },
 
   dayMetaIcon: {
     margin: 0,
-    width: 22,
-    height: 22,
+    width: 24,
+    height: 24,
     marginRight: 2,
   },
 
-  dayActions: {
-    gap: 8,
+  dayActionsPanel: {
+    marginTop: 14,
+    borderRadius: 22,
+    borderWidth: 1,
+    padding: 8,
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
   },
 
-  actionButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+  dayOrderActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+
+  dayEditActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+
+  orderButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    margin: 0,
+  },
+
+  editButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     margin: 0,
   },
 

@@ -26,12 +26,12 @@ export const COLOR_PRESETS = {
         tertiary: "#B9FF38",
         background: "#070A0F",
         surface: "#10151F",
-        surfaceVariant: "#171E2B",
+        surfaceVariant: "#181D24",
         onSurfaceVariant: "#A7B0C2",
-        outline: "#263244",
-        outlineVariant: "#1D2736",
-        softPrimary: "rgba(124, 255, 155, 0.12)",
-        softTertiary: "rgba(185, 255, 56, 0.14)",
+        outline: "#2A303A",
+        outlineVariant: "#1E2630",
+        softPrimary: "rgba(124, 255, 155, 0.10)",
+        softTertiary: "rgba(185, 255, 56, 0.08)",
         },
     },
 
@@ -57,14 +57,14 @@ export const COLOR_PRESETS = {
         onPrimary: "#06111F",
         secondary: "#E5E7EB",
         tertiary: "#38BDF8",
-        background: "#060A12",
-        surface: "#0F172A",
-        surfaceVariant: "#172033",
+        background: "#070A0F",
+        surface: "#10151F",
+        surfaceVariant: "#181D24",
         onSurfaceVariant: "#A7B0C2",
-        outline: "#26334A",
-        outlineVariant: "#1C2638",
-        softPrimary: "rgba(96, 165, 250, 0.14)",
-        softTertiary: "rgba(56, 189, 248, 0.14)",
+        outline: "#2A303A",
+        outlineVariant: "#1E2630",
+        softPrimary: "rgba(96, 165, 250, 0.10)",
+        softTertiary: "rgba(56, 189, 248, 0.08)",
         },
     },
 
@@ -90,47 +90,47 @@ export const COLOR_PRESETS = {
         onPrimary: "#1C0B02",
         secondary: "#F3F4F6",
         tertiary: "#FDBA74",
-        background: "#0B0907",
-        surface: "#17120E",
-        surfaceVariant: "#221912",
-        onSurfaceVariant: "#C5B8AA",
-        outline: "#3A2A1F",
-        outlineVariant: "#2B211A",
-        softPrimary: "rgba(251, 146, 60, 0.14)",
-        softTertiary: "rgba(253, 186, 116, 0.14)",
+        background: "#070A0F",
+        surface: "#10151F",
+        surfaceVariant: "#181D24",
+        onSurfaceVariant: "#A7B0C2",
+        outline: "#2A303A",
+        outlineVariant: "#1E2630",
+        softPrimary: "rgba(251, 146, 60, 0.10)",
+        softTertiary: "rgba(253, 186, 116, 0.08)",
         },
     },
 
-    yellow: {
-        id: "yellow",
-        name: "Amarillo Energy",
+    black: {
+        id: "black",
+        name: "Negro Elite",
         light: {
-        primary: "#B7791F",
+        primary: "#111827",
         onPrimary: "#FFFFFF",
-        secondary: "#111827",
-        tertiary: "#FACC15",
-        background: "#FFFBEF",
+        secondary: "#374151",
+        tertiary: "#6B7280",
+        background: "#F5F5F5",
         surface: "#FFFFFF",
-        surfaceVariant: "#FFF4C2",
-        onSurfaceVariant: "#6B5E2E",
-        outline: "#E8D99A",
-        outlineVariant: "#F2E8B8",
-        softPrimary: "rgba(183, 121, 31, 0.14)",
-        softTertiary: "rgba(250, 204, 21, 0.24)",
+        surfaceVariant: "#F0F0F0",
+        onSurfaceVariant: "#6B7280",
+        outline: "#D4D4D4",
+        outlineVariant: "#E5E5E5",
+        softPrimary: "rgba(17, 24, 39, 0.10)",
+        softTertiary: "rgba(107, 114, 128, 0.14)",
         },
         dark: {
-        primary: "#FDE047",
-        onPrimary: "#1C1600",
-        secondary: "#F8FAFC",
-        tertiary: "#FACC15",
-        background: "#0D0B04",
-        surface: "#181407",
-        surfaceVariant: "#241E0A",
-        onSurfaceVariant: "#D8C982",
-        outline: "#3F3512",
-        outlineVariant: "#30280E",
-        softPrimary: "rgba(253, 224, 71, 0.16)",
-        softTertiary: "rgba(250, 204, 21, 0.14)",
+        primary: "#F8FAFC",
+        onPrimary: "#050505",
+        secondary: "#E5E7EB",
+        tertiary: "#A3A3A3",
+        background: "#000000",
+        surface: "#0B0B0B",
+        surfaceVariant: "#171717",
+        onSurfaceVariant: "#A3A3A3",
+        outline: "#2A2A2A",
+        outlineVariant: "#1F1F1F",
+        softPrimary: "rgba(248, 250, 252, 0.10)",
+        softTertiary: "rgba(163, 163, 163, 0.10)",
         },
     },
 
@@ -156,14 +156,14 @@ export const COLOR_PRESETS = {
         onPrimary: "#120722",
         secondary: "#F3F4F6",
         tertiary: "#C084FC",
-        background: "#08060D",
-        surface: "#14101D",
-        surfaceVariant: "#1E172B",
-        onSurfaceVariant: "#B9AEC8",
-        outline: "#342845",
-        outlineVariant: "#271F36",
-        softPrimary: "rgba(167, 139, 250, 0.14)",
-        softTertiary: "rgba(192, 132, 252, 0.14)",
+        background: "#070A0F",
+        surface: "#10151F",
+        surfaceVariant: "#181D24",
+        onSurfaceVariant: "#A7B0C2",
+        outline: "#2A303A",
+        outlineVariant: "#1E2630",
+        softPrimary: "rgba(167, 139, 250, 0.10)",
+        softTertiary: "rgba(192, 132, 252, 0.08)",
         },
     },
 
@@ -189,19 +189,19 @@ export const COLOR_PRESETS = {
         onPrimary: "#1F0505",
         secondary: "#F3F4F6",
         tertiary: "#FB7185",
-        background: "#0B0606",
-        surface: "#171010",
-        surfaceVariant: "#241717",
-        onSurfaceVariant: "#C8B4B4",
-        outline: "#3B2424",
-        outlineVariant: "#2C1D1D",
-        softPrimary: "rgba(248, 113, 113, 0.14)",
-        softTertiary: "rgba(251, 113, 133, 0.12)",
+        background: "#070A0F",
+        surface: "#10151F",
+        surfaceVariant: "#181D24",
+        onSurfaceVariant: "#A7B0C2",
+        outline: "#2A303A",
+        outlineVariant: "#1E2630",
+        softPrimary: "rgba(248, 113, 113, 0.10)",
+        softTertiary: "rgba(251, 113, 133, 0.08)",
         },
     },
-    };
+};
 
-    const createLiftLogTheme = ({ mode = "light", colorPreset = "green" }) => {
+const createLiftLogTheme = ({ mode = "light", colorPreset = "green" }) => {
     const isDark = mode === "dark";
     const baseTheme = isDark ? MD3DarkTheme : MD3LightTheme;
 
@@ -222,7 +222,7 @@ export const COLOR_PRESETS = {
         onSecondary: isDark ? "#111827" : "#FFFFFF",
 
         tertiary: palette.tertiary,
-        onTertiary: isDark ? "#111827" : "#111827",
+        onTertiary: "#111827",
 
         background: palette.background,
         onBackground: isDark ? "#F8FAFC" : "#111827",
@@ -269,13 +269,13 @@ export const COLOR_PRESETS = {
             : "rgba(15, 23, 42, 0.08)",
         },
     };
-    };
+};
 
-    export const getLiftLogTheme = ({
+export const getLiftLogTheme = ({
     themeMode,
     colorPreset,
     systemColorScheme,
-    }) => {
+}) => {
     const isDark =
         themeMode === "dark" ||
         (themeMode === "system" && systemColorScheme === "dark");
@@ -284,14 +284,14 @@ export const COLOR_PRESETS = {
         mode: isDark ? "dark" : "light",
         colorPreset,
     });
-    };
+};
 
-    export const lightTheme = createLiftLogTheme({
+export const lightTheme = createLiftLogTheme({
     mode: "light",
     colorPreset: "green",
-    });
+});
 
-    export const darkTheme = createLiftLogTheme({
+export const darkTheme = createLiftLogTheme({
     mode: "dark",
     colorPreset: "green",
-    });
+});
