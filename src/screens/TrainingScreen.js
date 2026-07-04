@@ -628,33 +628,6 @@ export default function TrainingScreen({ navigation }) {
                                   Ver ejercicios
                                 </Text>
                               </View>
-
-                              <View
-                                style={[
-                                  styles.dayMetaPill,
-                                  {
-                                    backgroundColor: mutedSurface,
-                                    borderColor: premiumBorder,
-                                  },
-                                ]}
-                              >
-                                <IconButton
-                                  icon="sort"
-                                  size={16}
-                                  iconColor={theme.colors.primary}
-                                  style={styles.dayMetaIcon}
-                                />
-
-                                <Text
-                                  variant="labelMedium"
-                                  style={{
-                                    color: theme.colors.onSurfaceVariant,
-                                    fontWeight: "800",
-                                  }}
-                                >
-                                  Orden {index + 1}
-                                </Text>
-                              </View>
                             </View>
                           </View>
                         </View>
